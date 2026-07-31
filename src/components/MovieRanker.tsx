@@ -55,7 +55,7 @@ export function MovieRanker({
         </p>
         <h2 className="text-2xl font-bold text-stone-100">
           {done
-            ? "All ranked — ready to submit!"
+            ? "All ranked! Ready to submit."
             : `Tap your #${nextRank} pick`}
         </h2>
         <p className="text-stone-500 mt-1">

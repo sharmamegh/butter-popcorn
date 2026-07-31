@@ -26,7 +26,7 @@ function m(
   return { id, title, year, director, tagline, description, themes, runtime, emoji, genre };
 }
 
-/** Popular, widely-loved films — each session picks 8 at random from this pool */
+/** Popular, widely-loved films. Each session picks 8 at random from this pool */
 export const MOVIE_CATALOG: Movie[] = [
   m("spirited-away", "Spirited Away", 2001, "Hayao Miyazaki", "A bathhouse of wonders awaits.",
     "A young girl enters a spirit world and works at a magical bathhouse to save her parents. A dreamy, emotional adventure full of strange creatures and quiet courage.",

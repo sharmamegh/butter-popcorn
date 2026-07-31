@@ -60,7 +60,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
       setPlayerName(joinInput.trim());
       await refresh();
     } catch {
-      alert("Couldn't join — room may be full or already started.");
+      alert("Couldn't join. Room may be full or already started.");
     } finally {
       setJoining(false);
     }
@@ -85,7 +85,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
       setSubmitted(true);
       await refresh();
     } catch {
-      alert("Couldn't submit — make sure every movie is ranked.");
+      alert("Couldn't submit. Make sure every movie is ranked.");
     } finally {
       setSubmitting(false);
     }
@@ -156,7 +156,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
         <div className="w-full max-w-md space-y-6 text-center">
           <div>
             <p className="text-sm uppercase tracking-widest text-butter-500 mb-2">
-              Room code — send this to everyone
+              Room code: send this to everyone
             </p>
             <p className="text-5xl font-mono font-bold text-butter-300 tracking-[0.15em]">
               {code}
@@ -198,7 +198,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
                 ? "Starting..."
                 : room.players.length < 2
                   ? "Waiting for everyone to join..."
-                  : "Everyone's here — start ranking!"}
+                  : "Everyone's here! Start ranking!"}
             </button>
           ) : (
             <p className="text-stone-500">Waiting for the host to start...</p>

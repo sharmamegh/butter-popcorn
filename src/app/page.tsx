@@ -141,7 +141,7 @@ export default function Home() {
       <ol className="text-sm text-stone-600 space-y-2 max-w-lg text-center list-none">
         <li>1. Host creates a room and shares the code or link</li>
         <li>2. Everyone joins on their own device and ranks 8 movies</li>
-        <li>3. Grand reveal — the group&apos;s most compatible pick wins</li>
+        <li>3. Grand reveal: the group&apos;s most compatible pick wins</li>
       </ol>
     </CinemaShell>
   );
