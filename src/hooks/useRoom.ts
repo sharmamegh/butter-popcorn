@@ -54,34 +54,40 @@ export function useRoom(code: string) {
   return { room, error, loading, refresh };
 }
 
-export async function createRoom(hostName: string, expectedPlayers: number) {
+export async function createRoom(
+  hostName: string,
+  expectedPlayers: number,
+  mood: string,
+  customTmdbIds: number[]
+) {
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hostName, expectedPlayers }),
+    body: JSON.stringify({ hostName, expectedPlayers, mood, customTmdbIds }),
   });
   if (!res.ok) throw new Error("Failed to create room");
   return res.json();
 }
 
-export async function joinRoomApi(code: string, name: string) {
+export async function roomAction(
+  code: string,
+  body: Record<string, unknown>
+) {
   const res = await fetch(`/api/rooms/${code}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "join", name }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("Failed to join");
+  if (!res.ok) throw new Error("Request failed");
   return res.json();
 }
 
+export async function joinRoomApi(code: string, name: string) {
+  return roomAction(code, { action: "join", name });
+}
+
 export async function startRoomApi(code: string, playerId: string) {
-  const res = await fetch(`/api/rooms/${code}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "start", playerId }),
-  });
-  if (!res.ok) throw new Error("Failed to start");
-  return res.json();
+  return roomAction(code, { action: "start", playerId });
 }
 
 export async function submitRankingsApi(
@@ -89,21 +95,33 @@ export async function submitRankingsApi(
   playerId: string,
   rankings: string[]
 ) {
-  const res = await fetch(`/api/rooms/${code}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "submit", playerId, rankings }),
-  });
-  if (!res.ok) throw new Error("Failed to submit");
-  return res.json();
+  return roomAction(code, { action: "submit", playerId, rankings });
 }
 
-export async function resetRoomApi(code: string, playerId: string) {
-  const res = await fetch(`/api/rooms/${code}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "reset", playerId }),
-  });
-  if (!res.ok) throw new Error("Failed to reset");
-  return res.json();
+export async function newRoundApi(code: string, playerId: string) {
+  return roomAction(code, { action: "reset", playerId });
+}
+
+export async function vetoApi(
+  code: string,
+  playerId: string,
+  response: "accept" | "veto"
+) {
+  return roomAction(code, { action: "veto", playerId, response });
+}
+
+export async function addCustomMovieApi(
+  code: string,
+  playerId: string,
+  tmdbId: number
+) {
+  return roomAction(code, { action: "add-custom", playerId, tmdbId });
+}
+
+export async function removeCustomMovieApi(
+  code: string,
+  playerId: string,
+  tmdbId: number
+) {
+  return roomAction(code, { action: "remove-custom", playerId, tmdbId });
 }

@@ -1,8 +1,70 @@
 "use client";
 
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
-import type { Movie } from "@/data/movies";
+import type { Movie } from "@/types/movie";
 import { MoviePickCard } from "./MoviePickCard";
+
+function SortableRankedCard({
+  movie,
+  rank,
+  onRemove,
+  disabled,
+}: {
+  movie: Movie;
+  rank: number;
+  onRemove: () => void;
+  disabled?: boolean;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: movie.id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+      <button
+        type="button"
+        className="text-stone-600 hover:text-butter-400 cursor-grab active:cursor-grabbing px-1 touch-none"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        ⠿
+      </button>
+      <div className="flex-1">
+        <MoviePickCard
+          movie={movie}
+          rank={rank}
+          onClick={onRemove}
+          disabled={disabled}
+          compact
+        />
+      </div>
+    </div>
+  );
+}
 
 export function MovieRanker({
   movies,
@@ -20,6 +82,12 @@ export function MovieRanker({
     .map((id) => movies.find((m) => m.id === id))
     .filter((m): m is Movie => !!m);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
   const addMovie = (id: string) => {
     if (disabled || rankings.includes(id)) return;
     onChange([...rankings, id]);
@@ -30,18 +98,13 @@ export function MovieRanker({
     onChange(rankings.filter((r) => r !== id));
   };
 
-  const moveUp = (index: number) => {
-    if (disabled || index === 0) return;
-    const next = [...rankings];
-    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    onChange(next);
-  };
-
-  const moveDown = (index: number) => {
-    if (disabled || index === rankings.length - 1) return;
-    const next = [...rankings];
-    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    onChange(next);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = rankings.indexOf(String(active.id));
+    const newIndex = rankings.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    onChange(arrayMove(rankings, oldIndex, newIndex));
   };
 
   const nextRank = rankings.length + 1;
@@ -54,12 +117,10 @@ export function MovieRanker({
           Your picks
         </p>
         <h2 className="text-2xl font-bold text-stone-100">
-          {done
-            ? "All ranked! Ready to submit."
-            : `Tap your #${nextRank} pick`}
+          {done ? "All ranked! Ready to submit." : `Tap your #${nextRank} pick`}
         </h2>
         <p className="text-stone-500 mt-1">
-          Most wanted at the top · {rankings.length}/{movies.length} ranked
+          Drag to reorder · {rankings.length}/{movies.length} ranked
         </p>
       </div>
 
@@ -68,39 +129,26 @@ export function MovieRanker({
           <p className="text-xs uppercase tracking-wider text-stone-500 px-1">
             Your ranking
           </p>
-          {ranked.map((movie, index) => (
-            <div key={movie.id} className="flex items-center gap-2">
-              <div className="flex flex-col gap-1">
-                <button
-                  type="button"
-                  onClick={() => moveUp(index)}
-                  disabled={disabled || index === 0}
-                  className="text-stone-600 hover:text-butter-400 disabled:opacity-30 text-xs cursor-pointer"
-                  aria-label="Move up"
-                >
-                  ▲
-                </button>
-                <button
-                  type="button"
-                  onClick={() => moveDown(index)}
-                  disabled={disabled || index === ranked.length - 1}
-                  className="text-stone-600 hover:text-butter-400 disabled:opacity-30 text-xs cursor-pointer"
-                  aria-label="Move down"
-                >
-                  ▼
-                </button>
-              </div>
-              <div className="flex-1">
-                <MoviePickCard
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={ranked.map((m) => m.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {ranked.map((movie, index) => (
+                <SortableRankedCard
+                  key={movie.id}
                   movie={movie}
                   rank={index + 1}
-                  onClick={() => removeMovie(movie.id)}
+                  onRemove={() => removeMovie(movie.id)}
                   disabled={disabled}
-                  compact
                 />
-              </div>
-            </div>
-          ))}
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
 
@@ -135,7 +183,7 @@ export function WaitingForOthers({ names }: { names: string[] }) {
       <div className="text-5xl animate-pulse">🍿</div>
       <h2 className="text-2xl font-bold text-stone-100">Rankings locked in!</h2>
       <p className="text-stone-400">
-        Waiting for {names.join(" & ")} to finish...
+        Waiting for {names.join(", ")} to finish...
       </p>
     </motion.div>
   );

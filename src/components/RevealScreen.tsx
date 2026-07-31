@@ -1,24 +1,31 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { Movie } from "@/data/movies";
+import type { Movie } from "@/types/movie";
 import type { MatchResult, PublicRoom } from "@/lib/room-types";
 import { getMovieById } from "@/data/movies";
+import { ThemeTags } from "./MoviePickCard";
 
 export function RevealScreen({
   movie,
   result,
   room,
   playerId,
-  onPlayAgain,
+  me,
+  onNewRound,
+  onVetoResponse,
 }: {
   movie: Movie;
   result: MatchResult;
   room: PublicRoom;
   playerId: string;
-  onPlayAgain: () => void;
+  me: PublicRoom["players"][0];
+  onNewRound: () => void;
+  onVetoResponse: (response: "accept" | "veto") => void;
 }) {
   const isHost = room.hostId === playerId;
+  const needsMyResponse = me.vetoResponse === "pending";
+  const canVeto = needsMyResponse && !me.vetoUsed;
 
   return (
     <motion.div
@@ -26,17 +33,25 @@ export function RevealScreen({
       animate={{ opacity: 1, scale: 1 }}
       className="w-full max-w-lg text-center space-y-6"
     >
-      <motion.div
-        animate={{ scale: [1, 1.08, 1] }}
-        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-        className="text-7xl"
-      >
-        {movie.emoji}
-      </motion.div>
+      {movie.posterUrl ? (
+        <img
+          src={movie.posterUrl}
+          alt={movie.title}
+          className="mx-auto w-40 rounded-xl shadow-lg"
+        />
+      ) : (
+        <motion.div
+          animate={{ scale: [1, 1.08, 1] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="text-7xl"
+        >
+          {movie.emoji}
+        </motion.div>
+      )}
 
       <div>
         <p className="text-sm uppercase tracking-[0.35em] text-emerald-400 mb-2">
-          Tonight you&apos;re watching
+          The group is watching
         </p>
         <h1
           className="text-4xl sm:text-5xl font-bold text-butter-100"
@@ -49,24 +64,11 @@ export function RevealScreen({
         </p>
       </div>
 
-      <p className="text-xl text-stone-300 italic">
-        &ldquo;{movie.tagline}&rdquo;
-      </p>
-
-      <p className="text-base text-stone-400 leading-relaxed max-w-md mx-auto">
+      <p className="text-base text-stone-400 leading-relaxed max-w-md mx-auto text-left">
         {movie.description}
       </p>
 
-      <div className="flex flex-wrap justify-center gap-2">
-        {movie.themes.map((theme) => (
-          <span
-            key={theme}
-            className="rounded-full bg-cinema-700 border border-cinema-600 px-3 py-1 text-xs text-stone-400"
-          >
-            {theme}
-          </span>
-        ))}
-      </div>
+      <ThemeTags themes={movie.themes} />
 
       <div className="rounded-2xl border border-butter-400/30 bg-butter-400/10 px-5 py-4">
         <p className="text-lg font-medium text-butter-200">{result.insight}</p>
@@ -79,13 +81,41 @@ export function RevealScreen({
         </div>
       </div>
 
+      {needsMyResponse && (
+        <div className="space-y-3">
+          <p className="text-stone-400">Happy with this pick?</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              type="button"
+              onClick={() => onVetoResponse("accept")}
+              className="rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 px-8 py-3 text-lg font-bold text-cinema-900 cursor-pointer"
+            >
+              Looks good!
+            </button>
+            {canVeto && (
+              <button
+                type="button"
+                onClick={() => onVetoResponse("veto")}
+                className="rounded-2xl border border-red-500/50 bg-red-500/10 px-8 py-3 text-lg font-bold text-red-300 cursor-pointer"
+              >
+                Veto (1 per room)
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!needsMyResponse && room.vetoPending && (
+        <p className="text-stone-500">Waiting for others to respond...</p>
+      )}
+
       <div className="rounded-2xl border border-cinema-600 bg-cinema-800/60 p-4 text-left">
         <p className="text-xs uppercase tracking-wider text-stone-500 mb-3">
           Compatibility scores
         </p>
         <div className="space-y-2">
           {result.scores.slice(0, 4).map((entry, i) => {
-            const m = getMovieById(entry.movieId);
+            const m = room.movies.find((mv) => mv.id === entry.movieId) ?? getMovieById(entry.movieId);
             if (!m) return null;
             const maxScore = result.scores[0]?.points ?? 1;
             const pct = Math.round((entry.points / maxScore) * 100);
@@ -112,14 +142,12 @@ export function RevealScreen({
         </div>
       </div>
 
-      <p className="text-xl font-bold text-stone-200">
-        🎬 Time to press play!
-      </p>
+      <p className="text-xl font-bold text-stone-200">🎬 Time to press play!</p>
 
       {isHost && (
         <button
           type="button"
-          onClick={onPlayAgain}
+          onClick={onNewRound}
           className="rounded-2xl border border-cinema-600 px-6 py-3 text-stone-400 hover:text-stone-200 cursor-pointer"
         >
           New round with fresh movies

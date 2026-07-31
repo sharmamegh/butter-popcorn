@@ -3,13 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
+import { MoodPicker } from "@/components/MoodPicker";
+import { MovieSearch } from "@/components/MovieSearch";
 import { createRoom, savePlayer } from "@/hooks/useRoom";
+import type { Mood } from "@/types/movie";
 
 export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [players, setPlayers] = useState(2);
+  const [mood, setMood] = useState<Mood>("any");
+  const [customTmdbIds, setCustomTmdbIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
 
@@ -17,7 +22,7 @@ export default function Home() {
     if (!name.trim()) return;
     setLoading(true);
     try {
-      const data = await createRoom(name.trim(), players);
+      const data = await createRoom(name.trim(), players, mood, customTmdbIds);
       savePlayer(data.code, data.playerId, name.trim());
       router.push(`/room/${data.code}`);
     } catch {
@@ -27,7 +32,9 @@ export default function Home() {
 
   const handleJoin = () => {
     if (!name.trim() || joinCode.trim().length < 4) return;
-    router.push(`/room/${joinCode.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`);
+    router.push(
+      `/room/${joinCode.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`
+    );
   };
 
   return (
@@ -73,7 +80,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setPlayers(n)}
                     className={`
-                      flex-1 rounded-xl py-2.5 text-sm font-medium border cursor-pointer
+                      flex-1 min-w-[3rem] rounded-xl py-2.5 text-sm font-medium border cursor-pointer
                       ${
                         players === n
                           ? "border-butter-400 bg-butter-400/15 text-butter-200"
@@ -86,6 +93,20 @@ export default function Home() {
                 ))}
               </div>
             </label>
+
+            <MoodPicker selected={mood} onChange={setMood} />
+
+            <MovieSearch
+              selectedIds={customTmdbIds}
+              onAdd={(id) =>
+                setCustomTmdbIds((prev) =>
+                  prev.length < 3 ? [...prev, id] : prev
+                )
+              }
+              onRemove={(id) =>
+                setCustomTmdbIds((prev) => prev.filter((x) => x !== id))
+              }
+            />
 
             <button
               type="button"

@@ -4,16 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
 import { MovieRanker, WaitingForOthers } from "@/components/MovieRanker";
+import { MovieSearch } from "@/components/MovieSearch";
 import { RevealScreen } from "@/components/RevealScreen";
-import { getMoviesByIds } from "@/data/movies";
+import { RoomInvite } from "@/components/RoomInvite";
 import {
+  addCustomMovieApi,
   joinRoomApi,
   loadPlayer,
-  resetRoomApi,
+  newRoundApi,
+  removeCustomMovieApi,
   savePlayer,
   startRoomApi,
   submitRankingsApi,
   useRoom,
+  vetoApi,
 } from "@/hooks/useRoom";
 
 export default function RoomClient({ params }: { params: Promise<{ code: string }> }) {
@@ -48,7 +52,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
   const isInRoom = room?.players.some((p) => p.id === playerId) ?? false;
   const isHost = room?.hostId === playerId;
   const me = room?.players.find((p) => p.id === playerId);
-  const movies = room ? getMoviesByIds(room.movieIds) : [];
+  const movies = room?.movies ?? [];
 
   const handleJoin = async () => {
     if (!joinInput.trim() || !code) return;
@@ -91,11 +95,29 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     }
   };
 
-  const handlePlayAgain = async () => {
+  const handleNewRound = async () => {
     if (!playerId || !code) return;
-    await resetRoomApi(code, playerId);
+    await newRoundApi(code, playerId);
     setRankings([]);
     setSubmitted(false);
+    await refresh();
+  };
+
+  const handleVeto = async (response: "accept" | "veto") => {
+    if (!playerId || !code) return;
+    await vetoApi(code, playerId, response);
+    await refresh();
+  };
+
+  const handleAddCustom = async (tmdbId: number) => {
+    if (!playerId || !code) return;
+    await addCustomMovieApi(code, playerId, tmdbId);
+    await refresh();
+  };
+
+  const handleRemoveCustom = async (tmdbId: number) => {
+    if (!playerId || !code) return;
+    await removeCustomMovieApi(code, playerId, tmdbId);
     await refresh();
   };
 
@@ -126,10 +148,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     return (
       <CinemaShell>
         <div className="w-full max-w-md space-y-4 text-center">
-          <p className="text-sm uppercase tracking-widest text-butter-500">Join room</p>
-          <p className="text-4xl font-mono font-bold text-butter-300 tracking-[0.2em]">
-            {code}
-          </p>
+          <RoomInvite code={code} onCopy={copyLink} copied={copied} />
           <input
             type="text"
             value={joinInput}
@@ -153,23 +172,8 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
   if (room.status === "lobby") {
     return (
       <CinemaShell>
-        <div className="w-full max-w-md space-y-6 text-center">
-          <div>
-            <p className="text-sm uppercase tracking-widest text-butter-500 mb-2">
-              Room code: send this to everyone
-            </p>
-            <p className="text-5xl font-mono font-bold text-butter-300 tracking-[0.15em]">
-              {code}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={copyLink}
-            className="w-full rounded-xl border border-cinema-600 py-3 text-stone-300 hover:border-butter-400/50 cursor-pointer"
-          >
-            {copied ? "Link copied!" : "Copy invite link"}
-          </button>
+        <div className="w-full max-w-md space-y-6">
+          <RoomInvite code={code} onCopy={copyLink} copied={copied} />
 
           <div className="rounded-2xl border border-cinema-600 bg-cinema-800/60 p-4">
             <p className="text-sm text-stone-500 mb-3">
@@ -187,6 +191,14 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
             </ul>
           </div>
 
+          {isHost && room.tmdbEnabled && (
+            <MovieSearch
+              selectedIds={room.customTmdbIds}
+              onAdd={handleAddCustom}
+              onRemove={handleRemoveCustom}
+            />
+          )}
+
           {isHost ? (
             <button
               type="button"
@@ -201,7 +213,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
                   : "Everyone's here! Start ranking!"}
             </button>
           ) : (
-            <p className="text-stone-500">Waiting for the host to start...</p>
+            <p className="text-stone-500 text-center">Waiting for the host to start...</p>
           )}
         </div>
       </CinemaShell>
@@ -209,8 +221,8 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
   }
 
   if (room.status === "revealed" && room.result) {
-    const winner = getMoviesByIds([room.result.winnerId])[0];
-    if (!winner || !playerId) return null;
+    const winner = room.movies.find((m) => m.id === room.result!.winnerId);
+    if (!winner || !playerId || !me) return null;
 
     return (
       <CinemaShell>
@@ -219,7 +231,9 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
           result={room.result}
           room={room}
           playerId={playerId}
-          onPlayAgain={handlePlayAgain}
+          me={me}
+          onNewRound={handleNewRound}
+          onVetoResponse={handleVeto}
         />
       </CinemaShell>
     );

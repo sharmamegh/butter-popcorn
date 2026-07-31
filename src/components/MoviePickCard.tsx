@@ -1,6 +1,6 @@
 "use client";
 
-import type { Movie } from "@/data/movies";
+import type { Movie } from "@/types/movie";
 
 export function ThemeTags({ themes }: { themes: string[] }) {
   return (
@@ -49,12 +49,20 @@ export function MoviePickCard({
       `}
     >
       {ranked && (
-        <span className="absolute -top-2 -left-2 flex h-8 w-8 items-center justify-center rounded-full bg-butter-400 text-sm font-bold text-cinema-900">
+        <span className="absolute -top-2 -left-2 flex h-8 w-8 items-center justify-center rounded-full bg-butter-400 text-sm font-bold text-cinema-900 z-10">
           {rank}
         </span>
       )}
       <div className="flex items-start gap-3">
-        <span className="text-3xl shrink-0">{movie.emoji}</span>
+        {movie.posterUrl ? (
+          <img
+            src={movie.posterUrl}
+            alt=""
+            className="w-14 h-20 object-cover rounded-lg shrink-0 bg-cinema-700"
+          />
+        ) : (
+          <span className="text-3xl shrink-0 w-14 text-center">{movie.emoji}</span>
+        )}
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-stone-100">{movie.title}</p>
           <p className="text-sm text-stone-500">
@@ -62,7 +70,7 @@ export function MoviePickCard({
           </p>
           {!compact && (
             <>
-              <p className="text-sm text-stone-300 mt-2 leading-relaxed">
+              <p className="text-sm text-stone-300 mt-2 leading-relaxed line-clamp-3">
                 {movie.description}
               </p>
               <ThemeTags themes={movie.themes} />

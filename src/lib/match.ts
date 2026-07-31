@@ -1,16 +1,20 @@
 import type { MatchResult } from "@/lib/room-types";
 import type { Room } from "@/lib/room-types";
+export function calculateMatch(
+  room: Room,
+  excludeMovieIds: string[] = []
+): MatchResult | null {
+  const eligibleIds = room.movieIds.filter(
+    (id) => !excludeMovieIds.includes(id)
+  );
 
-/**
- * Borda count: rank #1 gets N points, last gets 1.
- * Tie-break: lowest worst individual rank (nobody hated it).
- */
-export function calculateMatch(room: Room): MatchResult {
-  const n = room.movieIds.length;
+  if (eligibleIds.length === 0) return null;
+
+  const n = eligibleIds.length;
   const scores = new Map<string, number>();
   const worstRank = new Map<string, number>();
 
-  for (const id of room.movieIds) {
+  for (const id of eligibleIds) {
     scores.set(id, 0);
     worstRank.set(id, 0);
   }
@@ -18,6 +22,7 @@ export function calculateMatch(room: Room): MatchResult {
   for (const player of room.players) {
     if (!player.rankings) continue;
     player.rankings.forEach((movieId, index) => {
+      if (!eligibleIds.includes(movieId)) return;
       const rank = index + 1;
       const points = n - index;
       scores.set(movieId, (scores.get(movieId) ?? 0) + points);
@@ -33,6 +38,8 @@ export function calculateMatch(room: Room): MatchResult {
       if (b.points !== a.points) return b.points - a.points;
       return (worstRank.get(a.movieId) ?? 99) - (worstRank.get(b.movieId) ?? 99);
     });
+
+  if (sorted.length === 0 || sorted[0].points === 0) return null;
 
   const winnerId = sorted[0].movieId;
 
