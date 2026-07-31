@@ -112,14 +112,14 @@ export default function RoomClient({
   };
 
   const handleSubmit = async () => {
-    if (!playerId || !code || rankings.length !== movies.length) return;
+    if (!playerId || !code || rankings.length === 0) return;
     setSubmitting(true);
     try {
       await submitRankingsApi(code, playerId, rankings);
       setSubmitted(true);
       await refresh();
     } catch {
-      alert("Couldn't submit. Make sure every movie is ranked.");
+      alert("Couldn't lock in your list. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -433,16 +433,17 @@ export default function RoomClient({
         rankings={rankings}
         onChange={setRankings}
         disabled={submitting}
+        action={
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting || rankings.length === 0}
+            className="mx-auto block w-full max-w-lg cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
+          >
+            {submitting ? "Locking in..." : "I'm happy with this list"}
+          </button>
+        }
       />
-
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={submitting || rankings.length !== movies.length}
-        className="w-full max-w-lg cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
-      >
-        {submitting ? "Submitting..." : "I'm happy with this list"}
-      </button>
     </CinemaShell>
   );
 }

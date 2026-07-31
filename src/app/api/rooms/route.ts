@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
 import { createRoom, isTmdbEnabled, pruneRooms } from "@/lib/room-store";
+import { hasPersistentStorage } from "@/lib/room-storage";
 import { toPublicRoom } from "@/lib/room-types";
 import { normalizeMoods } from "@/types/movie";
 
 export async function POST(request: Request) {
+  if (!hasPersistentStorage()) {
+    console.error(
+      "[butter-popcorn] Refusing to create room: Redis REST credentials missing on Vercel"
+    );
+    return NextResponse.json(
+      {
+        error:
+          "This site isn't set up for shared rooms yet. Add Upstash Redis in the Vercel project, then redeploy.",
+      },
+      { status: 503 }
+    );
+  }
+
   await pruneRooms();
 
   const body = await request.json();

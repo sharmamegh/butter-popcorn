@@ -16,15 +16,20 @@ export default function Home() {
   const [moods, setMoods] = useState<Mood[]>(["any"]);
   const [loading, setLoading] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const handleCreate = async () => {
     if (!name.trim()) return;
     setLoading(true);
+    setCreateError(null);
     try {
       const data = await createRoom(name.trim(), players, moods);
       savePlayer(data.code, data.playerId, name.trim());
       router.push(`/room/${data.code}`);
-    } catch {
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : "Couldn't create a room. Try again."
+      );
       setLoading(false);
     }
   };
@@ -99,6 +104,12 @@ export default function Home() {
             </div>
 
             <MoodPicker selected={moods} onChange={setMoods} />
+
+            {createError && (
+              <p className="text-sm text-red-300/90 text-center" role="alert">
+                {createError}
+              </p>
+            )}
 
             <button
               type="button"

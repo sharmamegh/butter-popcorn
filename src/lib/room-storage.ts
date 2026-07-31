@@ -95,7 +95,7 @@ class FileStorage implements RoomStorage {
   }
 }
 
-/** In-process store. Used on Vercel without Redis (ephemeral per instance). */
+/** In-process store. Local fallback only — never reliable across Vercel instances. */
 class MemoryStorage implements RoomStorage {
   private rooms = new Map<string, Room>();
 
@@ -148,18 +148,36 @@ class UpstashStorage implements RoomStorage {
   }
 }
 
-function createStorage(): RoomStorage {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+function redisRestCredentials(): { url: string; token: string } | null {
+  // Standard Upstash names, or Vercel Marketplace store prefixes (e.g. REDIS_KV_*).
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL ??
+    process.env.REDIS_KV_REST_API_URL ??
+    process.env.KV_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ??
+    process.env.REDIS_KV_REST_API_TOKEN ??
+    process.env.KV_REST_API_TOKEN;
 
-  if (url && token) {
+  if (!url || !token) return null;
+  return { url, token };
+}
+
+function createStorage(): RoomStorage {
+  const creds = redisRestCredentials();
+
+  if (creds) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
-    return new UpstashStorage(new Redis({ url, token }));
+    return new UpstashStorage(new Redis(creds));
   }
 
-  // Vercel filesystem is read-only; use memory until Redis is configured.
+  // Vercel filesystem is read-only / ephemeral per instance.
+  // Memory "works" for a single warm lambda and then rooms vanish → 404s.
   if (process.env.VERCEL) {
+    console.error(
+      "[butter-popcorn] Redis REST URL/token missing (UPSTASH_REDIS_* or REDIS_KV_REST_API_*). Rooms will not persist across serverless instances."
+    );
     return new MemoryStorage();
   }
 
@@ -175,9 +193,12 @@ export function getStorage(): RoomStorage {
 }
 
 export function storageMode(): "upstash" | "file" | "memory" {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return "upstash";
-  }
+  if (redisRestCredentials()) return "upstash";
   if (process.env.VERCEL) return "memory";
   return "file";
+}
+
+/** True when room state will survive across serverless invocations. */
+export function hasPersistentStorage(): boolean {
+  return storageMode() !== "memory";
 }

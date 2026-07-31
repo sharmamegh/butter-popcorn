@@ -39,10 +39,11 @@ This unlocks a catalog of thousands of popular films, posters, mood filtering, a
 
 1. Push to GitHub and import in [Vercel](https://vercel.com)
 2. Add `TMDB_API_KEY` in Vercel environment variables
-3. Optional: add [Upstash Redis](https://upstash.com) (free tier) for reliable room persistence across serverless instances:
-   - Create a free Redis database on Upstash
-   - Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to Vercel env vars
-   - Without Redis, rooms still work but may reset on cold starts
+3. **Required for multiplayer:** add [Upstash Redis](https://vercel.com/marketplace/upstash) (free tier) so rooms persist across serverless instances:
+   - Easiest: Vercel dashboard → Project → Storage → create/connect Upstash Redis
+   - The app reads `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or Marketplace names like `REDIS_KV_REST_API_URL` + `REDIS_KV_REST_API_TOKEN`
+   - Redeploy after the store is connected
+   - Without Redis, create-room is blocked on Vercel (in-memory rooms vanish between requests and look like 404s)
 
 ```bash
 npm run dev

@@ -27,26 +27,29 @@ export function useRoom(code: string) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<"ok" | "missing" | "error"> => {
     if (!code) {
       setLoading(true);
       setError(null);
       setRoom(null);
-      return;
+      return "error";
     }
 
     try {
       const res = await fetch(`/api/rooms/${code}`);
       if (!res.ok) {
-        setError("Room not found");
+        const missing = res.status === 404;
+        setError(missing ? "Room not found" : "Couldn't load room");
         setRoom(null);
-        return;
+        return missing ? "missing" : "error";
       }
       const data = await res.json();
       setRoom(data.room);
       setError(null);
+      return "ok";
     } catch {
       setError("Connection error");
+      return "error";
     } finally {
       setLoading(false);
     }
@@ -60,10 +63,30 @@ export function useRoom(code: string) {
       return;
     }
 
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const stop = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
     setLoading(true);
-    refresh();
-    const interval = setInterval(refresh, 2000);
-    return () => clearInterval(interval);
+    (async () => {
+      const status = await refresh();
+      if (cancelled || status === "missing") return;
+      interval = setInterval(async () => {
+        const next = await refresh();
+        if (next === "missing") stop();
+      }, 2000);
+    })();
+
+    return () => {
+      cancelled = true;
+      stop();
+    };
   }, [code, refresh]);
 
   return { room, error, loading, refresh };
@@ -79,7 +102,16 @@ export async function createRoom(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ hostName, expectedPlayers, moods }),
   });
-  if (!res.ok) throw new Error("Failed to create room");
+  if (!res.ok) {
+    let message = "Failed to create room";
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // keep default
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 

@@ -1,5 +1,5 @@
 import { DISCOVERY_FILL_COUNT, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/constants";
-import { calculateMatch } from "@/lib/match";
+import { calculateMatch, completeRankings } from "@/lib/match";
 import { getStorage } from "@/lib/room-storage";
 import type { CustomPick, Room, RoomPlayer } from "@/lib/room-types";
 import { roomCustomPicks, roomMoods } from "@/lib/room-types";
@@ -263,16 +263,10 @@ export async function submitRankings(
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return null;
 
-  const valid = new Set(room.movieIds);
-  if (
-    rankings.length !== room.movieIds.length ||
-    !rankings.every((id) => valid.has(id)) ||
-    new Set(rankings).size !== rankings.length
-  ) {
-    return null;
-  }
+  const completed = completeRankings(rankings, room.movieIds);
+  if (!completed) return null;
 
-  player.rankings = rankings;
+  player.rankings = completed;
   player.submitted = true;
 
   if (room.players.every((p) => p.submitted)) {

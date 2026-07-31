@@ -1,5 +1,24 @@
 import type { MatchResult } from "@/lib/room-types";
 import type { Room } from "@/lib/room-types";
+
+/**
+ * Keep explicit picks in order, then append anything unranked
+ * in the slate's original order so a short top list is enough to submit.
+ */
+export function completeRankings(
+  rankings: string[],
+  movieIds: string[]
+): string[] | null {
+  const valid = new Set(movieIds);
+  if (rankings.length === 0) return null;
+  if (!rankings.every((id) => valid.has(id))) return null;
+  if (new Set(rankings).size !== rankings.length) return null;
+
+  const chosen = new Set(rankings);
+  const rest = movieIds.filter((id) => !chosen.has(id));
+  return [...rankings, ...rest];
+}
+
 export function calculateMatch(
   room: Room,
   excludeMovieIds: string[] = []

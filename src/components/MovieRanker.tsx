@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   DndContext,
   closestCenter,
@@ -75,11 +75,13 @@ export function MovieRanker({
   rankings,
   onChange,
   disabled,
+  action,
 }: {
   movies: Movie[];
   rankings: string[];
   onChange: (rankings: string[]) => void;
   disabled?: boolean;
+  action?: ReactNode;
 }) {
   const [detailId, setDetailId] = useState<string | null>(null);
 
@@ -122,7 +124,8 @@ export function MovieRanker({
   };
 
   const nextRank = rankings.length + 1;
-  const done = rankings.length === movies.length;
+  const hasPicks = rankings.length > 0;
+  const allRanked = rankings.length === movies.length;
 
   return (
     <div className="w-full space-y-5">
@@ -131,22 +134,25 @@ export function MovieRanker({
           Your list
         </p>
         <h2 className="text-2xl font-bold text-stone-100">
-          {done
-            ? "Looking good. Lock it in when you're ready."
-            : nextRank === 1
-              ? "What are you most in the mood for?"
-              : `What's your #${nextRank}?`}
+          {hasPicks
+            ? allRanked
+              ? "Looking good. Lock it in when you're ready."
+              : "Happy with your top picks? Lock them in anytime."
+            : "What are you most in the mood for?"}
         </h2>
         <p className="mt-1 text-sm text-stone-500">
-          {rankings.length}/{movies.length} chosen
-          {ranked.length > 0 ? " · drag to reorder" : ""}
+          {hasPicks
+            ? `${rankings.length} favorite${rankings.length === 1 ? "" : "s"}${
+                allRanked ? "" : " · the rest fall into place"
+              }${ranked.length > 0 ? " · drag to reorder" : ""}`
+            : `Pick a few favorites from ${movies.length}`}
         </p>
       </div>
 
       {ranked.length > 0 && (
         <div className="mx-auto w-full max-w-lg space-y-2">
           <p className="px-1 text-xs uppercase tracking-wider text-stone-500">
-            Chosen
+            Your favorites
           </p>
           <DndContext
             sensors={sensors}
@@ -173,10 +179,12 @@ export function MovieRanker({
         </div>
       )}
 
+      {action}
+
       {unranked.length > 0 && (
         <div className="space-y-3">
           <p className="px-1 text-xs uppercase tracking-wider text-stone-500">
-            {ranked.length === 0 ? "Your options" : "Still deciding"}
+            {ranked.length === 0 ? "Your options" : "Also on the table"}
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {unranked.map((movie, i) => (
