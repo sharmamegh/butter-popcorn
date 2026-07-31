@@ -29,7 +29,7 @@ export function createRoom(hostName: string, expectedPlayers = 2): Room {
     code,
     seed,
     movieIds: movies.map((m) => m.id),
-    expectedPlayers: Math.min(4, Math.max(2, expectedPlayers)),
+    expectedPlayers: Math.min(8, Math.max(2, expectedPlayers)),
     status: "lobby",
     hostId,
     result: null,

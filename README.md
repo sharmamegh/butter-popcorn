@@ -1,17 +1,17 @@
 # 🍿 Butter Popcorn
 
-**Can't decide what to watch?** Everyone ranks the same movies on their own phone — the app reveals your best match.
+**Can't agree on a movie?** Everyone ranks the same films on their own device — the app reveals the group's best match.
 
-Built for movie nights on Discord: you and your girlfriend (or a few friends) each rank 8 popular films in private, then get a grand reveal of what you're watching tonight.
+Works for any crew size: a pair of friends, a weekly watch group, or a Discord hangout. Multiple rooms can run at the same time — each group gets their own code.
 
 ## How it works
 
-1. **Start a room** — pick how many people (2–4), get a shareable code
+1. **Create a room** — set how many people (2–8), share the code or link
 2. **Everyone joins on their own device** — phone, tablet, or laptop
-3. **Rank 8 movies** — tap to order them most → least wanted
-4. **Grand reveal** — the app picks the most compatible film and shows why
+3. **Rank 8 movies** — each card includes a description and themes so you know what you're picking
+4. **Grand reveal** — combined scoring picks the winner and shows how the group ranked it
 
-Rankings stay private until the reveal. The match uses a combined scoring system so picks nobody hates tend to win.
+Rankings stay private until everyone submits. No account needed.
 
 ## Getting started
 
@@ -20,12 +20,12 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) on your laptop, create a room, and have your girlfriend open the link on her phone.
+Open [http://localhost:3000](http://localhost:3000), create a room, and share the link with your group.
 
 ## Tech
 
 - Next.js 15 · React 19 · Tailwind CSS 4 · Framer Motion
-- Room sync via API polling (no account needed)
+- Room sync via API polling — independent rooms run in parallel
 
 ## License
 

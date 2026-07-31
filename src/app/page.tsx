@@ -42,9 +42,9 @@ export default function Home() {
         >
           Butter Popcorn
         </h1>
-        <p className="text-stone-400 text-lg max-w-md mx-auto">
-          Both of you rank the same movies on your phones. We reveal the best
-          match for tonight.
+        <p className="text-stone-400 text-lg max-w-lg mx-auto">
+          Create a room, rank the same movies on your own device, and let the
+          group reveal the best match. Any size crew, any night.
         </p>
       </header>
 
@@ -64,10 +64,10 @@ export default function Home() {
           <>
             <label className="block">
               <span className="text-sm text-stone-400 mb-1.5 block">
-                How many people?
+                How many people in this room?
               </span>
-              <div className="flex gap-2">
-                {[2, 3, 4].map((n) => (
+              <div className="flex flex-wrap gap-2">
+                {[2, 3, 4, 5, 6, 8].map((n) => (
                   <button
                     key={n}
                     type="button"
@@ -138,10 +138,10 @@ export default function Home() {
         )}
       </div>
 
-      <ol className="text-sm text-stone-600 space-y-2 max-w-md text-center list-none">
-        <li>1. Host creates a room &amp; shares the code</li>
-        <li>2. Everyone ranks 8 movies on their own device</li>
-        <li>3. Grand reveal — best match wins!</li>
+      <ol className="text-sm text-stone-600 space-y-2 max-w-lg text-center list-none">
+        <li>1. Host creates a room and shares the code or link</li>
+        <li>2. Everyone joins on their own device and ranks 8 movies</li>
+        <li>3. Grand reveal — the group&apos;s most compatible pick wins</li>
       </ol>
     </CinemaShell>
   );

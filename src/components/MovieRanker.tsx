@@ -96,6 +96,7 @@ export function MovieRanker({
                   rank={index + 1}
                   onClick={() => removeMovie(movie.id)}
                   disabled={disabled}
+                  compact
                 />
               </div>
             </div>

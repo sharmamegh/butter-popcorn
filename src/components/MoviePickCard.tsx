@@ -2,16 +2,33 @@
 
 import type { Movie } from "@/data/movies";
 
+export function ThemeTags({ themes }: { themes: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2">
+      {themes.map((theme) => (
+        <span
+          key={theme}
+          className="rounded-full bg-cinema-700/80 border border-cinema-600 px-2 py-0.5 text-xs text-stone-400"
+        >
+          {theme}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function MoviePickCard({
   movie,
   rank,
   onClick,
   disabled,
+  compact,
 }: {
   movie: Movie;
   rank?: number;
   onClick?: () => void;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   const ranked = rank !== undefined;
 
@@ -38,11 +55,19 @@ export function MoviePickCard({
       )}
       <div className="flex items-start gap-3">
         <span className="text-3xl shrink-0">{movie.emoji}</span>
-        <div className="min-w-0">
-          <p className="font-semibold text-stone-100 truncate">{movie.title}</p>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-stone-100">{movie.title}</p>
           <p className="text-sm text-stone-500">
             {movie.year} · {movie.genre} · {movie.runtime}
           </p>
+          {!compact && (
+            <>
+              <p className="text-sm text-stone-300 mt-2 leading-relaxed">
+                {movie.description}
+              </p>
+              <ThemeTags themes={movie.themes} />
+            </>
+          )}
         </div>
       </div>
     </button>

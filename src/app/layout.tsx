@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Butter Popcorn — Movie Night Picker",
+  title: "Butter Popcorn — Group Movie Picker",
   description:
-    "Can't decide what to watch? Pop the button and let fate pick your perfect movie night.",
+    "Rank movies with your friends on separate devices. Butter Popcorn finds the group's most compatible pick.",
 };
 
 export default function RootLayout({

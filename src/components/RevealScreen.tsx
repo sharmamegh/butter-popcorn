@@ -53,6 +53,21 @@ export function RevealScreen({
         &ldquo;{movie.tagline}&rdquo;
       </p>
 
+      <p className="text-base text-stone-400 leading-relaxed max-w-md mx-auto">
+        {movie.description}
+      </p>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        {movie.themes.map((theme) => (
+          <span
+            key={theme}
+            className="rounded-full bg-cinema-700 border border-cinema-600 px-3 py-1 text-xs text-stone-400"
+          >
+            {theme}
+          </span>
+        ))}
+      </div>
+
       <div className="rounded-2xl border border-butter-400/30 bg-butter-400/10 px-5 py-4">
         <p className="text-lg font-medium text-butter-200">{result.insight}</p>
         <div className="mt-3 space-y-1">
@@ -98,7 +113,7 @@ export function RevealScreen({
       </div>
 
       <p className="text-xl font-bold text-stone-200">
-        🎬 Share screen &amp; press play!
+        🎬 Time to press play!
       </p>
 
       {isHost && (

@@ -68,14 +68,18 @@ function buildInsight(room: Room, winnerId: string): string {
   const allTop3 = ranks.every((r) => r <= 3);
   const bothNumberOne = ranks.every((r) => r === 1);
 
-  if (bothNumberOne) return "You both picked this as #1 — perfect match!";
-  if (allTop3) return "You both had this in your top 3 — great overlap.";
+  if (bothNumberOne) return "Unanimous #1 — everyone picked this first!";
+  if (allTop3) return "Strong group overlap — this was in everyone's top 3.";
   if (ranks.length === 2) {
     const [a, b] = ranks;
-    if (a <= 2 && b <= 2) return "Strong agree — both of you ranked this near the top.";
-    if (Math.max(a, b) <= 4) return "Solid compromise — nobody's top pick, but nobody hated it.";
-    return "The best overlap from tonight's list — time to give it a shot!";
+    if (a <= 2 && b <= 2) return "Both ranked this near the top — clear favorite.";
+    if (Math.max(a, b) <= 4) return "Solid compromise — not everyone's #1, but nobody ranked it last.";
+    return "Best overlap on tonight's list — worth a shot!";
   }
+
+  const avgRank = ranks.reduce((a, b) => a + b, 0) / ranks.length;
+  if (avgRank <= 3) return "Strong group consensus — ranked highly across the board.";
+  if (avgRank <= 5) return "Good group fit — a pick most people can get behind.";
 
   return "Highest combined score across the group!";
 }
