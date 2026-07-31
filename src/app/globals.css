@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+:root {
+  --night: #0c0907;
+  --night-lift: #17110c;
+  --ember: #b45309;
+  --butter: #f0c43a;
+  --butter-hot: #ffd666;
+  --cream: #fff3d1;
+  --kernel: #6b3f14;
+  --kernel-deep: #3d230c;
+  --steam: rgba(255, 243, 209, 0.08);
+  --background: var(--night);
+  --foreground: var(--cream);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-night: var(--night);
+  --color-night-lift: var(--night-lift);
+  --color-ember: var(--ember);
+  --color-butter: var(--butter);
+  --color-butter-hot: var(--butter-hot);
+  --color-cream: var(--cream);
+  --color-kernel: var(--kernel);
+  --font-display: var(--font-syne);
+  --font-body: var(--font-figtree);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--butter) 55%, transparent);
+  color: var(--night);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes brand-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(18px);
+    letter-spacing: 0.18em;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    letter-spacing: 0.04em;
+  }
+}
+
+@keyframes heat-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+@keyframes steam-drift {
+  0% {
+    transform: translate3d(0, 12px, 0);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate3d(8px, -80px, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-rise {
+  animation: rise-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-brand {
+  animation: brand-settle 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-score {
+  animation: score-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.heat-glow {
+  animation: heat-pulse 4.5s ease-in-out infinite;
+}
+
+.steam {
+  animation: steam-drift 4s ease-out infinite;
+}
