@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@theme {
+  --color-butter-50: #fffbeb;
+  --color-butter-100: #fef3c7;
+  --color-butter-200: #fde68a;
+  --color-butter-300: #fcd34d;
+  --color-butter-400: #f5c842;
+  --color-butter-500: #e8a830;
+  --color-butter-600: #d4920f;
+  --color-cinema-900: #0a0705;
+  --color-cinema-800: #14100c;
+  --color-cinema-700: #1e1812;
+  --color-cinema-600: #2a2118;
+  --color-curtain: #6b1a1a;
+  --font-display: "Georgia", "Times New Roman", serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-cinema-900);
+  color: #f5f0e8;
+  min-height: 100dvh;
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+.cinema-glow {
+  background: radial-gradient(
+    ellipse 80% 50% at 50% 0%,
+    rgba(245, 200, 66, 0.12) 0%,
+    transparent 70%
+  );
+}
+
+.popcorn-shadow {
+  box-shadow:
+    0 0 60px rgba(245, 200, 66, 0.15),
+    0 20px 40px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+
+.float {
+  animation: float 4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-butter-400) 0%,
+    #fff 40%,
+    var(--color-butter-300) 60%,
+    var(--color-butter-500) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 4s linear infinite;
+}
