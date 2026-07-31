@@ -1,75 +1,148 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { pickMovie, type Mood, type Movie } from "@/data/movies";
-import { MoodSelector } from "@/components/MoodSelector";
-import { MovieCard } from "@/components/MovieCard";
-import { PopButton } from "@/components/PopButton";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { CinemaShell } from "@/components/CinemaShell";
+import { createRoom, savePlayer } from "@/hooks/useRoom";
 
 export default function Home() {
-  const [mood, setMood] = useState<Mood>("any");
-  const [movie, setMovie] = useState<Movie | null>(null);
-  const [isPopping, setIsPopping] = useState(false);
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [players, setPlayers] = useState(2);
+  const [loading, setLoading] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);
 
-  const handlePop = useCallback(() => {
-    if (isPopping) return;
+  const handleCreate = async () => {
+    if (!name.trim()) return;
+    setLoading(true);
+    try {
+      const data = await createRoom(name.trim(), players);
+      savePlayer(data.code, data.playerId, name.trim());
+      router.push(`/room/${data.code}`);
+    } catch {
+      setLoading(false);
+    }
+  };
 
-    setIsPopping(true);
-    setMovie(null);
-
-    setTimeout(() => {
-      setMovie(pickMovie(mood));
-      setIsPopping(false);
-    }, 600);
-  }, [isPopping, mood]);
+  const handleJoin = () => {
+    if (!name.trim() || joinCode.trim().length < 4) return;
+    router.push(`/room/${joinCode.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`);
+  };
 
   return (
-    <main className="relative min-h-dvh overflow-hidden">
-      {/* Cinema curtain edges */}
-      <div
-        className="fixed top-0 left-0 h-full w-8 sm:w-16 bg-gradient-to-r from-curtain/80 to-transparent z-10"
-        aria-hidden="true"
-      />
-      <div
-        className="fixed top-0 right-0 h-full w-8 sm:w-16 bg-gradient-to-l from-curtain/80 to-transparent z-10"
-        aria-hidden="true"
-      />
+    <CinemaShell>
+      <header className="text-center mb-4">
+        <p className="text-xs uppercase tracking-[0.35em] text-butter-600 mb-3">
+          Movie Night
+        </p>
+        <h1
+          className="text-4xl sm:text-6xl font-bold shimmer-text mb-3"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          Butter Popcorn
+        </h1>
+        <p className="text-stone-400 text-lg max-w-md mx-auto">
+          Both of you rank the same movies on your phones. We reveal the best
+          match for tonight.
+        </p>
+      </header>
 
-      <div className="cinema-glow fixed inset-0 pointer-events-none" />
+      <div className="w-full max-w-md space-y-4 rounded-2xl border border-cinema-600 bg-cinema-800/60 p-6">
+        <label className="block">
+          <span className="text-sm text-stone-400 mb-1.5 block">Your name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Me"
+            className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-lg text-stone-100 placeholder:text-stone-600 focus:border-butter-400 focus:outline-none"
+          />
+        </label>
 
-      <div className="relative z-20 mx-auto flex min-h-dvh max-w-3xl flex-col items-center justify-center gap-8 px-6 py-16">
-        <header className="text-center">
-          <p className="text-xs uppercase tracking-[0.35em] text-butter-600 mb-3">
-            Movie Night
-          </p>
-          <h1
-            className="text-5xl sm:text-6xl font-bold shimmer-text mb-3"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Butter Popcorn
-          </h1>
-          <p className="text-stone-400 text-lg max-w-md mx-auto">
-            Pick a mood, pop the button, and let destiny choose tonight&apos;s
-            film.
-          </p>
-        </header>
+        {!showJoin ? (
+          <>
+            <label className="block">
+              <span className="text-sm text-stone-400 mb-1.5 block">
+                How many people?
+              </span>
+              <div className="flex gap-2">
+                {[2, 3, 4].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setPlayers(n)}
+                    className={`
+                      flex-1 rounded-xl py-2.5 text-sm font-medium border cursor-pointer
+                      ${
+                        players === n
+                          ? "border-butter-400 bg-butter-400/15 text-butter-200"
+                          : "border-cinema-600 text-stone-500 hover:border-butter-500/40"
+                      }
+                    `}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </label>
 
-        <MoodSelector selected={mood} onChange={setMood} />
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={!name.trim() || loading}
+              className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {loading ? "Creating..." : "Start a room 🍿"}
+            </button>
 
-        <MovieCard movie={movie} />
+            <button
+              type="button"
+              onClick={() => setShowJoin(true)}
+              className="w-full text-sm text-stone-500 hover:text-butter-400 cursor-pointer"
+            >
+              Have a code? Join a room
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="block">
+              <span className="text-sm text-stone-400 mb-1.5 block">Room code</span>
+              <input
+                type="text"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                placeholder="ABCDE"
+                maxLength={5}
+                className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-2xl font-mono tracking-[0.3em] text-center text-butter-300 placeholder:text-stone-600 focus:border-butter-400 focus:outline-none uppercase"
+              />
+            </label>
 
-        <PopButton
-          onClick={handlePop}
-          isPopping={isPopping}
-          disabled={isPopping}
-        />
+            <button
+              type="button"
+              onClick={handleJoin}
+              disabled={!name.trim() || joinCode.trim().length < 4}
+              className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+            >
+              Join room
+            </button>
 
-        <footer className="text-center text-stone-600 text-xs mt-4">
-          {movie
-            ? "Not feeling it? Pop again for another pick."
-            : `${mood === "any" ? "All" : mood.replace(/-/g, " ")} movies in the mix`}
-        </footer>
+            <button
+              type="button"
+              onClick={() => setShowJoin(false)}
+              className="w-full text-sm text-stone-500 hover:text-butter-400 cursor-pointer"
+            >
+              ← Start a new room instead
+            </button>
+          </>
+        )}
       </div>
-    </main>
+
+      <ol className="text-sm text-stone-600 space-y-2 max-w-md text-center list-none">
+        <li>1. Host creates a room &amp; shares the code</li>
+        <li>2. Everyone ranks 8 movies on their own device</li>
+        <li>3. Grand reveal — best match wins!</li>
+      </ol>
+    </CinemaShell>
   );
 }
