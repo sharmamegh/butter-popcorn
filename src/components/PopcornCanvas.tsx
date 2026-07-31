@@ -33,6 +33,7 @@ type Burst = {
 type PopcornCanvasProps = {
   onPop?: (count: number) => void;
   active?: boolean;
+  popRequest?: number;
 };
 
 function random(min: number, max: number) {
@@ -133,7 +134,11 @@ function drawPopped(
   ctx.restore();
 }
 
-export function PopcornCanvas({ onPop, active = true }: PopcornCanvasProps) {
+export function PopcornCanvas({
+  onPop,
+  active = true,
+  popRequest = 0,
+}: PopcornCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const kernelsRef = useRef<Kernel[]>([]);
   const burstsRef = useRef<Burst[]>([]);
@@ -142,6 +147,8 @@ export function PopcornCanvas({ onPop, active = true }: PopcornCanvasProps) {
   const rafRef = useRef(0);
   const sizeRef = useRef({ w: 0, h: 0 });
   const onPopRef = useRef(onPop);
+  const popAtRef = useRef<(x: number, y: number) => void>(() => {});
+  const lastPopRequest = useRef(0);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -262,14 +269,10 @@ export function PopcornCanvas({ onPop, active = true }: PopcornCanvasProps) {
     };
   }, []);
 
-  const popAt = (clientX: number, clientY: number) => {
+  const popAt = (x: number, y: number) => {
     if (!active) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
     const { w, h } = sizeRef.current;
+    if (!w || !h) return;
 
     burstsRef.current.push({ x, y, life: 1 });
 
@@ -311,9 +314,21 @@ export function PopcornCanvas({ onPop, active = true }: PopcornCanvasProps) {
     }
   };
 
+  useEffect(() => {
+    popAtRef.current = popAt;
+  });
+
+  useEffect(() => {
+    if (!popRequest || popRequest === lastPopRequest.current) return;
+    lastPopRequest.current = popRequest;
+    const { w, h } = sizeRef.current;
+    popAtRef.current(w * 0.5, h * 0.72);
+  }, [popRequest]);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
-    popAt(e.clientX, e.clientY);
+    const rect = e.currentTarget.getBoundingClientRect();
+    popAt(e.clientX - rect.left, e.clientY - rect.top);
   };
 
   return (

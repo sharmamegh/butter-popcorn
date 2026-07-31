@@ -6,6 +6,7 @@ import { PopcornCanvas } from "./PopcornCanvas";
 export function Hero() {
   const [score, setScore] = useState(0);
   const [scoreKey, setScoreKey] = useState(0);
+  const [popRequest, setPopRequest] = useState(0);
 
   const handlePop = (total: number) => {
     setScore(total);
@@ -32,7 +33,7 @@ export function Hero() {
         />
       </div>
 
-      <PopcornCanvas onPop={handlePop} />
+      <PopcornCanvas onPop={handlePop} popRequest={popRequest} />
 
       <div className="pointer-events-none relative z-10 flex min-h-[100svh] flex-col">
         <header className="flex items-center justify-between px-6 pt-6 sm:px-10">
@@ -84,18 +85,7 @@ export function Hero() {
             <button
               type="button"
               className="inline-flex h-12 items-center justify-center border border-cream/25 px-7 font-display text-sm font-semibold tracking-[0.14em] text-cream/90 uppercase transition hover:border-butter/60 hover:text-butter focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-butter"
-              onClick={() => {
-                const canvas = document.querySelector("canvas");
-                if (!canvas) return;
-                const rect = canvas.getBoundingClientRect();
-                canvas.dispatchEvent(
-                  new PointerEvent("pointerdown", {
-                    bubbles: true,
-                    clientX: rect.left + rect.width * 0.5,
-                    clientY: rect.top + rect.height * 0.72,
-                  }),
-                );
-              }}
+              onClick={() => setPopRequest((n) => n + 1)}
             >
               Pop a batch
             </button>
