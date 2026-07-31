@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+:root {
+  --butter: #ffc933;
+  --butter-deep: #e8a812;
+  --butter-glow: #ffe08a;
+  --ink: #152238;
+  --ink-soft: #2a3d5c;
+  --sky-top: #ffb38a;
+  --sky-mid: #ffd6a0;
+  --sky-low: #fff0c8;
+  --kernel: #c4a35a;
+  --kernel-dark: #8b6914;
+  --popped: #fff8e7;
+  --popped-edge: #f5e6c8;
+  --salt: #f0e6d2;
+  --curtain: #8b1e2d;
+  --background: var(--sky-low);
+  --foreground: var(--ink);
+}
+
+@theme inline {
+  --color-butter: var(--butter);
+  --color-butter-deep: var(--butter-deep);
+  --color-butter-glow: var(--butter-glow);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-sky-top: var(--sky-top);
+  --color-sky-mid: var(--sky-mid);
+  --color-sky-low: var(--sky-low);
+  --color-kernel: var(--kernel);
+  --color-kernel-dark: var(--kernel-dark);
+  --color-popped: var(--popped);
+  --color-popped-edge: var(--popped-edge);
+  --color-salt: var(--salt);
+  --color-curtain: var(--curtain);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-display: var(--font-display);
+  --font-sans: var(--font-body);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--butter);
+  color: var(--ink);
+}
+
+@keyframes float-kernel {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--rot, 0deg));
+  }
+  50% {
+    transform: translateY(-18px) rotate(calc(var(--rot, 0deg) + 12deg));
+  }
+}
+
+@keyframes pop-burst {
+  0% {
+    transform: translate(0, 0) scale(0.35) rotate(0deg);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(1) rotate(var(--spin));
+    opacity: 1;
+  }
+}
+
+@keyframes sizzle {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scaleY(1.15);
+  }
+}
+
+@keyframes butter-drip {
+  0% {
+    transform: translateY(-8px) scaleY(0.4);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(28px) scaleY(1);
+    opacity: 0.85;
+  }
+}
+
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes steam {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translateY(-40px) scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes shake-pan {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-1.5deg);
+  }
+  75% {
+    transform: rotate(1.5deg);
+  }
+}
+
+.animate-float-kernel {
+  animation: float-kernel var(--dur, 4s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.animate-hero-rise {
+  animation: hero-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-sizzle {
+  animation: sizzle 1.2s ease-in-out infinite;
+}
+
+.animate-butter-drip {
+  animation: butter-drip 1.4s ease-in infinite;
+}
+
+.animate-steam {
+  animation: steam 2s ease-out infinite;
+}
+
+.animate-shake-pan {
+  animation: shake-pan 0.35s ease-in-out infinite;
+}
+
+.pop-kernel {
+  animation: pop-burst 0.55s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+}
+
+.drive-in-sky {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% 108%, #152238 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 78% 18%, #ff8f6b 0%, transparent 50%),
+    linear-gradient(
+      180deg,
+      var(--sky-top) 0%,
+      var(--sky-mid) 38%,
+      var(--sky-low) 72%,
+      #ffe9b0 100%
+    );
+}
+
+.screen-glow {
+  background: radial-gradient(
+    ellipse 70% 45% at 50% 42%,
+    rgba(255, 201, 51, 0.35) 0%,
+    transparent 70%
+  );
+}
