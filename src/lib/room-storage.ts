@@ -1,3 +1,5 @@
+import { promises as fs } from "fs";
+import path from "path";
 import type { Room } from "@/lib/room-types";
 
 const TTL_SECONDS = 6 * 60 * 60;
@@ -9,6 +11,91 @@ export interface RoomStorage {
   prune(): Promise<void>;
 }
 
+/**
+ * File-backed store for local/dev without Redis.
+ * Survives hot reloads and works across route module instances.
+ */
+class FileStorage implements RoomStorage {
+  private dir: string;
+  private writeQueues = new Map<string, Promise<void>>();
+
+  constructor(dir: string) {
+    this.dir = dir;
+  }
+
+  private filePath(code: string) {
+    return path.join(this.dir, `${code.toUpperCase()}.json`);
+  }
+
+  private async ensureDir() {
+    await fs.mkdir(this.dir, { recursive: true });
+  }
+
+  async get(code: string): Promise<Room | null> {
+    try {
+      const raw = await fs.readFile(this.filePath(code), "utf8");
+      const room = JSON.parse(raw) as Room;
+      const cutoff = Date.now() - TTL_SECONDS * 1000;
+      if (room.createdAt < cutoff) {
+        await this.delete(code);
+        return null;
+      }
+      return room;
+    } catch {
+      return null;
+    }
+  }
+
+  async set(room: Room): Promise<void> {
+    const code = room.code.toUpperCase();
+    const previous = this.writeQueues.get(code) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await this.ensureDir();
+        const tmp = `${this.filePath(code)}.tmp`;
+        await fs.writeFile(tmp, JSON.stringify(room), "utf8");
+        await fs.rename(tmp, this.filePath(code));
+      });
+    this.writeQueues.set(code, next);
+    await next;
+  }
+
+  async delete(code: string): Promise<void> {
+    try {
+      await fs.unlink(this.filePath(code));
+    } catch {
+      // already gone
+    }
+  }
+
+  async prune(): Promise<void> {
+    try {
+      await this.ensureDir();
+      const files = await fs.readdir(this.dir);
+      const cutoff = Date.now() - TTL_SECONDS * 1000;
+      await Promise.all(
+        files
+          .filter((f) => f.endsWith(".json"))
+          .map(async (f) => {
+            try {
+              const raw = await fs.readFile(path.join(this.dir, f), "utf8");
+              const room = JSON.parse(raw) as Room;
+              if (room.createdAt < cutoff) {
+                await fs.unlink(path.join(this.dir, f));
+              }
+            } catch {
+              // skip unreadable files
+            }
+          })
+      );
+    } catch {
+      // nothing to prune
+    }
+  }
+}
+
+/** In-process store. Used on Vercel without Redis (ephemeral per instance). */
 class MemoryStorage implements RoomStorage {
   private rooms = new Map<string, Room>();
 
@@ -17,7 +104,7 @@ class MemoryStorage implements RoomStorage {
   }
 
   async set(room: Room): Promise<void> {
-    this.rooms.set(room.code, room);
+    this.rooms.set(room.code.toUpperCase(), room);
   }
 
   async delete(code: string): Promise<void> {
@@ -71,7 +158,13 @@ function createStorage(): RoomStorage {
     return new UpstashStorage(new Redis({ url, token }));
   }
 
-  return new MemoryStorage();
+  // Vercel filesystem is read-only; use memory until Redis is configured.
+  if (process.env.VERCEL) {
+    return new MemoryStorage();
+  }
+
+  // Local file store survives Next.js HMR.
+  return new FileStorage(path.join(process.cwd(), ".data", "rooms"));
 }
 
 let storage: RoomStorage | null = null;
@@ -81,8 +174,10 @@ export function getStorage(): RoomStorage {
   return storage;
 }
 
-export function storageMode(): "upstash" | "memory" {
-  return process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-    ? "upstash"
-    : "memory";
+export function storageMode(): "upstash" | "file" | "memory" {
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    return "upstash";
+  }
+  if (process.env.VERCEL) return "memory";
+  return "file";
 }

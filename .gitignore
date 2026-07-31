@@ -15,6 +15,9 @@
 /.next/
 /out/
 
+# local room persistence (dev without Redis)
+/.data/
+
 # production
 /build
 

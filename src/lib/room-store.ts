@@ -1,14 +1,21 @@
+import { DISCOVERY_FILL_COUNT, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/constants";
 import { calculateMatch } from "@/lib/match";
 import { getStorage } from "@/lib/room-storage";
-import type { Room, RoomPlayer } from "@/lib/room-types";
+import type { CustomPick, Room, RoomPlayer } from "@/lib/room-types";
+import { roomCustomPicks, roomMoods } from "@/lib/room-types";
 import { buildSessionMovies, isTmdbEnabled } from "@/lib/tmdb";
 import type { Mood } from "@/types/movie";
+import { normalizeMoods } from "@/types/movie";
 import type { Movie } from "@/types/movie";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function moviesToRecord(movies: Movie[]): Record<string, Movie> {
   return Object.fromEntries(movies.map((m) => [m.id, m]));
+}
+
+function uniqueCustomIds(room: Room): number[] {
+  return [...new Set(roomCustomPicks(room).map((p) => p.tmdbId))];
 }
 
 export function generateCode(): string {
@@ -26,8 +33,7 @@ export function generatePlayerId(): string {
 export async function createRoom(
   hostName: string,
   expectedPlayers = 2,
-  mood: Mood = "any",
-  customTmdbIds: number[] = []
+  moods: Mood[] = ["any"]
 ): Promise<Room> {
   const storage = getStorage();
   let code = generateCode();
@@ -41,13 +47,16 @@ export async function createRoom(
   const room: Room = {
     code,
     seed,
-    mood,
+    moods: normalizeMoods(moods),
     movieIds: [],
     movies: {},
-    customTmdbIds: customTmdbIds.slice(0, 3),
+    customPicks: [],
     usedMovieIds: [],
     excludedMovieIds: [],
-    expectedPlayers: Math.min(8, Math.max(2, expectedPlayers)),
+    expectedPlayers: Math.min(
+      MAX_PLAYERS,
+      Math.max(MIN_PLAYERS, expectedPlayers)
+    ),
     status: "lobby",
     hostId,
     result: null,
@@ -57,6 +66,7 @@ export async function createRoom(
         id: hostId,
         name: hostName.trim() || "Host",
         isHost: true,
+        picksReady: false,
         submitted: false,
         rankings: null,
         vetoUsed: false,
@@ -90,6 +100,7 @@ export async function joinRoom(
     id: playerId,
     name: name.trim() || `Guest ${room.players.length + 1}`,
     isHost: false,
+    picksReady: false,
     submitted: false,
     rankings: null,
     vetoUsed: false,
@@ -101,17 +112,52 @@ export async function joinRoom(
   return { room, playerId };
 }
 
-export async function addCustomMovie(
+/** Host moves the room from lobby → picking so everyone can add movies. */
+export async function startPicking(
   code: string,
-  playerId: string,
-  tmdbId: number
+  playerId: string
 ): Promise<Room | null> {
   const room = await getRoom(code);
   if (!room || room.hostId !== playerId || room.status !== "lobby") return null;
-  if (room.customTmdbIds.includes(tmdbId)) return room;
-  if (room.customTmdbIds.length >= 3) return null;
+  if (room.players.length < 2) return null;
 
-  room.customTmdbIds.push(tmdbId);
+  room.status = "picking";
+  room.customPicks = roomCustomPicks(room);
+  for (const player of room.players) {
+    player.picksReady = false;
+    player.submitted = false;
+    player.rankings = null;
+  }
+
+  await saveRoom(room);
+  return room;
+}
+
+export async function addCustomMovie(
+  code: string,
+  playerId: string,
+  tmdbId: number,
+  meta?: { title?: string; year?: number; posterUrl?: string | null }
+): Promise<Room | null> {
+  const room = await getRoom(code);
+  if (!room || room.status !== "picking") return null;
+  if (!room.players.some((p) => p.id === playerId)) return null;
+
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.picksReady) return null;
+
+  room.customPicks = roomCustomPicks(room);
+  if (room.customPicks.some((p) => p.tmdbId === tmdbId)) return room;
+
+  const pick: CustomPick = {
+    tmdbId,
+    addedBy: playerId,
+    title: meta?.title?.trim() || `Movie ${tmdbId}`,
+    year: meta?.year ?? 0,
+    posterUrl: meta?.posterUrl ?? null,
+  };
+
+  room.customPicks.push(pick);
   await saveRoom(room);
   return room;
 }
@@ -122,29 +168,42 @@ export async function removeCustomMovie(
   tmdbId: number
 ): Promise<Room | null> {
   const room = await getRoom(code);
-  if (!room || room.hostId !== playerId || room.status !== "lobby") return null;
+  if (!room || room.status !== "picking") return null;
 
-  room.customTmdbIds = room.customTmdbIds.filter((id) => id !== tmdbId);
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return null;
+  if (player.picksReady) return null;
+
+  const isHost = room.hostId === playerId;
+  const picks = roomCustomPicks(room);
+  const target = picks.find((p) => p.tmdbId === tmdbId);
+  if (!target) return room;
+  if (!isHost && target.addedBy !== playerId) return null;
+
+  room.customPicks = picks.filter((p) => p.tmdbId !== tmdbId);
+
+  // Someone changed the mix: clear ready for people who weren't the remover? 
+  // Simpler: only the remover was not ready already. Keep others' ready.
   await saveRoom(room);
   return room;
 }
 
-export async function startRanking(
-  code: string,
-  playerId: string
-): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.hostId !== playerId || room.status !== "lobby") return null;
-  if (room.players.length < 2) return null;
-
-  const seed = `${room.code}-${Date.now()}`;
-  const movies = await buildSessionMovies({
+async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
+  const customIds = uniqueCustomIds(room);
+  return buildSessionMovies({
     seed,
-    mood: room.mood,
-    count: 8,
+    moods: roomMoods(room),
+    count: customIds.length > 0 ? customIds.length : DISCOVERY_FILL_COUNT,
     excludeIds: room.usedMovieIds,
-    customTmdbIds: room.customTmdbIds,
+    customTmdbIds: customIds,
+    fillFromDiscovery: customIds.length === 0,
   });
+}
+
+async function beginRanking(room: Room): Promise<Room | null> {
+  const seed = `${room.code}-${Date.now()}`;
+  const movies = await buildRoundMovies(room, seed);
+  if (movies.length < 2) return null;
 
   room.seed = seed;
   room.movieIds = movies.map((m) => m.id);
@@ -152,6 +211,7 @@ export async function startRanking(
   room.usedMovieIds = [...new Set([...room.usedMovieIds, ...room.movieIds])];
   room.status = "ranking";
   room.result = null;
+  room.excludedMovieIds = [];
 
   for (const player of room.players) {
     player.submitted = false;
@@ -160,6 +220,35 @@ export async function startRanking(
   }
 
   await saveRoom(room);
+  return room;
+}
+
+/** Mark yourself ready. When everyone is ready, ranking starts automatically. */
+export async function setPicksReady(
+  code: string,
+  playerId: string,
+  ready: boolean
+): Promise<Room | null> {
+  const room = await getRoom(code);
+  if (!room || room.status !== "picking") return null;
+
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return null;
+
+  player.picksReady = ready;
+  await saveRoom(room);
+
+  if (ready && room.players.every((p) => p.picksReady)) {
+    const started = await beginRanking(room);
+    if (!started) {
+      // Not enough movies; unready everyone so they can add more
+      player.picksReady = false;
+      await saveRoom(room);
+      return room;
+    }
+    return started;
+  }
+
   return room;
 }
 
@@ -252,31 +341,26 @@ export async function submitVetoResponse(
   return room;
 }
 
+/** Host starts a fresh picking round (keeps or clears picks via resetPicks). */
 export async function newRound(
   code: string,
-  playerId: string
+  playerId: string,
+  options: { clearPicks?: boolean } = {}
 ): Promise<Room | null> {
   const room = await getRoom(code);
   if (!room || room.hostId !== playerId) return null;
 
-  const seed = `${room.code}-${Date.now()}`;
-  const movies = await buildSessionMovies({
-    seed,
-    mood: room.mood,
-    count: 8,
-    excludeIds: room.usedMovieIds,
-    customTmdbIds: room.customTmdbIds,
-  });
-
-  room.seed = seed;
-  room.movieIds = movies.map((m) => m.id);
-  room.movies = moviesToRecord(movies);
-  room.usedMovieIds = [...new Set([...room.usedMovieIds, ...room.movieIds])];
-  room.status = "ranking";
+  room.status = "picking";
   room.result = null;
   room.excludedMovieIds = [];
+  room.movieIds = [];
+  room.movies = {};
+  if (options.clearPicks !== false) {
+    room.customPicks = [];
+  }
 
   for (const player of room.players) {
+    player.picksReady = false;
     player.submitted = false;
     player.rankings = null;
     player.vetoResponse = "pending";

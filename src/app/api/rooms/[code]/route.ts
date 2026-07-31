@@ -6,7 +6,8 @@ import {
   joinRoom,
   newRound,
   removeCustomMovie,
-  startRanking,
+  setPicksReady,
+  startPicking,
   submitRankings,
   submitVetoResponse,
 } from "@/lib/room-store";
@@ -33,64 +34,84 @@ export async function POST(request: Request, context: RouteContext) {
   const body = await request.json();
   const action = body.action as string;
 
-  if (action === "join") {
-    const result = await joinRoom(code, body.name ?? "Guest");
-    if (!result) {
-      return NextResponse.json({ error: "Cannot join room" }, { status: 400 });
+  switch (action) {
+    case "join": {
+      const result = await joinRoom(code, body.name ?? "Guest");
+      if (!result) {
+        return NextResponse.json({ error: "Cannot join room" }, { status: 400 });
+      }
+      return NextResponse.json({
+        playerId: result.playerId,
+        room: toPublicRoom(result.room, isTmdbEnabled()),
+      });
     }
-    return NextResponse.json({
-      playerId: result.playerId,
-      room: toPublicRoom(result.room, isTmdbEnabled()),
-    });
-  }
-
-  if (action === "start") {
-    const room = await startRanking(code, body.playerId);
-    if (!room) {
-      return NextResponse.json({ error: "Cannot start" }, { status: 400 });
+    case "start": {
+      const room = await startPicking(code, body.playerId);
+      if (!room) {
+        return NextResponse.json({ error: "Cannot start" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
-  }
-
-  if (action === "submit") {
-    const room = await submitRankings(code, body.playerId, body.rankings);
-    if (!room) {
-      return NextResponse.json({ error: "Invalid rankings" }, { status: 400 });
+    case "ready": {
+      const room = await setPicksReady(
+        code,
+        body.playerId,
+        body.ready !== false
+      );
+      if (!room) {
+        return NextResponse.json({ error: "Cannot update ready" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
-  }
-
-  if (action === "reset") {
-    const room = await newRound(code, body.playerId);
-    if (!room) {
-      return NextResponse.json({ error: "Cannot reset" }, { status: 400 });
+    case "submit": {
+      const room = await submitRankings(code, body.playerId, body.rankings);
+      if (!room) {
+        return NextResponse.json({ error: "Invalid rankings" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
-  }
-
-  if (action === "veto") {
-    const room = await submitVetoResponse(code, body.playerId, body.response);
-    if (!room) {
-      return NextResponse.json({ error: "Cannot submit response" }, { status: 400 });
+    case "reset": {
+      const room = await newRound(code, body.playerId);
+      if (!room) {
+        return NextResponse.json({ error: "Cannot reset" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
-  }
-
-  if (action === "add-custom") {
-    const room = await addCustomMovie(code, body.playerId, body.tmdbId);
-    if (!room) {
-      return NextResponse.json({ error: "Cannot add movie" }, { status: 400 });
+    case "veto": {
+      const room = await submitVetoResponse(code, body.playerId, body.response);
+      if (!room) {
+        return NextResponse.json(
+          { error: "Cannot submit response" },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
-  }
-
-  if (action === "remove-custom") {
-    const room = await removeCustomMovie(code, body.playerId, body.tmdbId);
-    if (!room) {
-      return NextResponse.json({ error: "Cannot remove movie" }, { status: 400 });
+    case "add-custom": {
+      const room = await addCustomMovie(code, body.playerId, body.tmdbId, {
+        title: typeof body.title === "string" ? body.title : undefined,
+        year: typeof body.year === "number" ? body.year : undefined,
+        posterUrl:
+          typeof body.posterUrl === "string" || body.posterUrl === null
+            ? body.posterUrl
+            : undefined,
+      });
+      if (!room) {
+        return NextResponse.json({ error: "Cannot add movie" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
-    return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
+    case "remove-custom": {
+      const room = await removeCustomMovie(code, body.playerId, body.tmdbId);
+      if (!room) {
+        return NextResponse.json(
+          { error: "Cannot remove movie" },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
+    }
+    default:
+      return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
-
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

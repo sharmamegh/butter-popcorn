@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
 import { MoodPicker } from "@/components/MoodPicker";
-import { MovieSearch } from "@/components/MovieSearch";
 import { createRoom, savePlayer } from "@/hooks/useRoom";
+import { PLAYER_SIZE_OPTIONS } from "@/lib/constants";
 import type { Mood } from "@/types/movie";
 
 export default function Home() {
@@ -13,8 +13,7 @@ export default function Home() {
   const [name, setName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [players, setPlayers] = useState(2);
-  const [mood, setMood] = useState<Mood>("any");
-  const [customTmdbIds, setCustomTmdbIds] = useState<number[]>([]);
+  const [moods, setMoods] = useState<Mood[]>(["any"]);
   const [loading, setLoading] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
 
@@ -22,7 +21,7 @@ export default function Home() {
     if (!name.trim()) return;
     setLoading(true);
     try {
-      const data = await createRoom(name.trim(), players, mood, customTmdbIds);
+      const data = await createRoom(name.trim(), players, moods);
       savePlayer(data.code, data.playerId, name.trim());
       router.push(`/room/${data.code}`);
     } catch {
@@ -41,7 +40,7 @@ export default function Home() {
     <CinemaShell>
       <header className="text-center mb-4">
         <p className="text-xs uppercase tracking-[0.35em] text-butter-600 mb-3">
-          Movie Night
+          Watch together
         </p>
         <h1
           className="text-4xl sm:text-6xl font-bold shimmer-text mb-3"
@@ -50,8 +49,8 @@ export default function Home() {
           Butter Popcorn
         </h1>
         <p className="text-stone-400 text-lg max-w-lg mx-auto">
-          Create a room, rank the same movies on your own device, and let the
-          group reveal the best match. Any size crew, any night.
+          Stop arguing over what to watch. Find the movie everyone&apos;s
+          actually happy with.
         </p>
       </header>
 
@@ -69,16 +68,21 @@ export default function Home() {
 
         {!showJoin ? (
           <>
-            <label className="block">
+            <div className="block">
               <span className="text-sm text-stone-400 mb-1.5 block">
                 How many people in this room?
               </span>
-              <div className="flex flex-wrap gap-2">
-                {[2, 3, 4, 5, 6, 8].map((n) => (
+              <div
+                className="flex flex-wrap gap-2"
+                role="group"
+                aria-label="Room size"
+              >
+                {PLAYER_SIZE_OPTIONS.map((n) => (
                   <button
                     key={n}
                     type="button"
                     onClick={() => setPlayers(n)}
+                    aria-pressed={players === n}
                     className={`
                       flex-1 min-w-[3rem] rounded-xl py-2.5 text-sm font-medium border cursor-pointer
                       ${
@@ -92,21 +96,9 @@ export default function Home() {
                   </button>
                 ))}
               </div>
-            </label>
+            </div>
 
-            <MoodPicker selected={mood} onChange={setMood} />
-
-            <MovieSearch
-              selectedIds={customTmdbIds}
-              onAdd={(id) =>
-                setCustomTmdbIds((prev) =>
-                  prev.length < 3 ? [...prev, id] : prev
-                )
-              }
-              onRemove={(id) =>
-                setCustomTmdbIds((prev) => prev.filter((x) => x !== id))
-              }
-            />
+            <MoodPicker selected={moods} onChange={setMoods} />
 
             <button
               type="button"
@@ -128,7 +120,9 @@ export default function Home() {
         ) : (
           <>
             <label className="block">
-              <span className="text-sm text-stone-400 mb-1.5 block">Room code</span>
+              <span className="text-sm text-stone-400 mb-1.5 block">
+                Room code
+              </span>
               <input
                 type="text"
                 value={joinCode}
@@ -160,9 +154,9 @@ export default function Home() {
       </div>
 
       <ol className="text-sm text-stone-600 space-y-2 max-w-lg text-center list-none">
-        <li>1. Host creates a room and shares the code or link</li>
-        <li>2. Everyone joins on their own device and ranks 8 movies</li>
-        <li>3. Grand reveal: the group&apos;s most compatible pick wins</li>
+        <li>1. Everyone joins the room</li>
+        <li>2. Add movies you want, then tap ready</li>
+        <li>3. Rank the shared list and find the winner</li>
       </ol>
     </CinemaShell>
   );

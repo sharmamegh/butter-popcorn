@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -20,7 +21,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import type { Movie } from "@/types/movie";
-import { MoviePickCard } from "./MoviePickCard";
+import {
+  MovieDetailSheet,
+  MoviePickCard,
+  MoviePosterTile,
+} from "./MoviePickCard";
 
 function SortableRankedCard({
   movie,
@@ -43,23 +48,22 @@ function SortableRankedCard({
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+    <div ref={setNodeRef} style={style} className="flex items-center gap-1.5">
       <button
         type="button"
-        className="text-stone-600 hover:text-butter-400 cursor-grab active:cursor-grabbing px-1 touch-none"
+        className="touch-none px-1 text-stone-600 hover:text-butter-400 cursor-grab active:cursor-grabbing"
         aria-label="Drag to reorder"
         {...attributes}
         {...listeners}
       >
         ⠿
       </button>
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         <MoviePickCard
           movie={movie}
           rank={rank}
           onClick={onRemove}
           disabled={disabled}
-          compact
         />
       </div>
     </div>
@@ -77,20 +81,30 @@ export function MovieRanker({
   onChange: (rankings: string[]) => void;
   disabled?: boolean;
 }) {
+  const [detailId, setDetailId] = useState<string | null>(null);
+
   const unranked = movies.filter((m) => !rankings.includes(m.id));
   const ranked = rankings
     .map((id) => movies.find((m) => m.id === id))
     .filter((m): m is Movie => !!m);
+  const detailMovie = detailId
+    ? movies.find((m) => m.id === detailId) ?? null
+    : null;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 150, tolerance: 5 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
   );
 
   const addMovie = (id: string) => {
     if (disabled || rankings.includes(id)) return;
     onChange([...rankings, id]);
+    setDetailId(null);
   };
 
   const removeMovie = (id: string) => {
@@ -111,23 +125,28 @@ export function MovieRanker({
   const done = rankings.length === movies.length;
 
   return (
-    <div className="w-full max-w-lg space-y-6">
-      <div className="text-center">
-        <p className="text-sm uppercase tracking-[0.25em] text-butter-500 mb-1">
-          Your picks
+    <div className="w-full space-y-5">
+      <div className="mx-auto max-w-lg text-center">
+        <p className="mb-1 text-sm uppercase tracking-[0.25em] text-butter-500">
+          Your list
         </p>
         <h2 className="text-2xl font-bold text-stone-100">
-          {done ? "All ranked! Ready to submit." : `Tap your #${nextRank} pick`}
+          {done
+            ? "Looking good. Lock it in when you're ready."
+            : nextRank === 1
+              ? "What are you most in the mood for?"
+              : `What's your #${nextRank}?`}
         </h2>
-        <p className="text-stone-500 mt-1">
-          Drag to reorder · {rankings.length}/{movies.length} ranked
+        <p className="mt-1 text-sm text-stone-500">
+          {rankings.length}/{movies.length} chosen
+          {ranked.length > 0 ? " · drag to reorder" : ""}
         </p>
       </div>
 
       {ranked.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wider text-stone-500 px-1">
-            Your ranking
+        <div className="mx-auto w-full max-w-lg space-y-2">
+          <p className="px-1 text-xs uppercase tracking-wider text-stone-500">
+            Chosen
           </p>
           <DndContext
             sensors={sensors}
@@ -138,36 +157,55 @@ export function MovieRanker({
               items={ranked.map((m) => m.id)}
               strategy={verticalListSortingStrategy}
             >
-              {ranked.map((movie, index) => (
-                <SortableRankedCard
-                  key={movie.id}
-                  movie={movie}
-                  rank={index + 1}
-                  onRemove={() => removeMovie(movie.id)}
-                  disabled={disabled}
-                />
-              ))}
+              <div className="space-y-1.5">
+                {ranked.map((movie, index) => (
+                  <SortableRankedCard
+                    key={movie.id}
+                    movie={movie}
+                    rank={index + 1}
+                    onRemove={() => removeMovie(movie.id)}
+                    disabled={disabled}
+                  />
+                ))}
+              </div>
             </SortableContext>
           </DndContext>
         </div>
       )}
 
       {unranked.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wider text-stone-500 px-1">
-            {ranked.length === 0 ? "Tonight's options" : "Still to rank"}
+        <div className="space-y-3">
+          <p className="px-1 text-xs uppercase tracking-wider text-stone-500">
+            {ranked.length === 0 ? "Your options" : "Still deciding"}
           </p>
-          <div className="grid gap-2">
-            {unranked.map((movie) => (
-              <MoviePickCard
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {unranked.map((movie, i) => (
+              <motion.div
                 key={movie.id}
-                movie={movie}
-                onClick={() => addMovie(movie.id)}
-                disabled={disabled}
-              />
+                className="min-w-0 w-full"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: Math.min(i * 0.04, 0.24) }}
+              >
+                <MoviePosterTile
+                  movie={movie}
+                  onOpen={() => setDetailId(movie.id)}
+                  disabled={disabled}
+                />
+              </motion.div>
             ))}
           </div>
         </div>
+      )}
+
+      {detailMovie && (
+        <MovieDetailSheet
+          movie={detailMovie}
+          nextRank={nextRank}
+          onPick={() => addMovie(detailMovie.id)}
+          onClose={() => setDetailId(null)}
+          disabled={disabled}
+        />
       )}
     </div>
   );
@@ -178,13 +216,11 @@ export function WaitingForOthers({ names }: { names: string[] }) {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="text-center space-y-4 py-12"
+      className="space-y-4 py-12 text-center"
     >
-      <div className="text-5xl animate-pulse">🍿</div>
-      <h2 className="text-2xl font-bold text-stone-100">Rankings locked in!</h2>
-      <p className="text-stone-400">
-        Waiting for {names.join(", ")} to finish...
-      </p>
+      <div className="animate-pulse text-5xl">🍿</div>
+      <h2 className="text-2xl font-bold text-stone-100">You're all set</h2>
+      <p className="text-stone-400">Waiting on {names.join(", ")}.</p>
     </motion.div>
   );
 }

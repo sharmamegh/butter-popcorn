@@ -28,6 +28,13 @@ export function useRoom(code: string) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (!code) {
+      setLoading(true);
+      setError(null);
+      setRoom(null);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/rooms/${code}`);
       if (!res.ok) {
@@ -46,10 +53,18 @@ export function useRoom(code: string) {
   }, [code]);
 
   useEffect(() => {
+    if (!code) {
+      setLoading(true);
+      setError(null);
+      setRoom(null);
+      return;
+    }
+
+    setLoading(true);
     refresh();
     const interval = setInterval(refresh, 2000);
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [code, refresh]);
 
   return { room, error, loading, refresh };
 }
@@ -57,13 +72,12 @@ export function useRoom(code: string) {
 export async function createRoom(
   hostName: string,
   expectedPlayers: number,
-  mood: string,
-  customTmdbIds: number[]
+  moods: string[]
 ) {
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hostName, expectedPlayers, mood, customTmdbIds }),
+    body: JSON.stringify({ hostName, expectedPlayers, moods }),
   });
   if (!res.ok) throw new Error("Failed to create room");
   return res.json();
@@ -90,6 +104,14 @@ export async function startRoomApi(code: string, playerId: string) {
   return roomAction(code, { action: "start", playerId });
 }
 
+export async function setPicksReadyApi(
+  code: string,
+  playerId: string,
+  ready = true
+) {
+  return roomAction(code, { action: "ready", playerId, ready });
+}
+
 export async function submitRankingsApi(
   code: string,
   playerId: string,
@@ -113,9 +135,10 @@ export async function vetoApi(
 export async function addCustomMovieApi(
   code: string,
   playerId: string,
-  tmdbId: number
+  tmdbId: number,
+  meta?: { title?: string; year?: number; posterUrl?: string | null }
 ) {
-  return roomAction(code, { action: "add-custom", playerId, tmdbId });
+  return roomAction(code, { action: "add-custom", playerId, tmdbId, ...meta });
 }
 
 export async function removeCustomMovieApi(

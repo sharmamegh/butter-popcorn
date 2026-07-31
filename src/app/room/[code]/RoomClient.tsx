@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
 import { MovieRanker, WaitingForOthers } from "@/components/MovieRanker";
@@ -14,20 +14,22 @@ import {
   newRoundApi,
   removeCustomMovieApi,
   savePlayer,
+  setPicksReadyApi,
   startRoomApi,
   submitRankingsApi,
   useRoom,
   vetoApi,
 } from "@/hooks/useRoom";
 
-export default function RoomClient({ params }: { params: Promise<{ code: string }> }) {
-  const [code, setCode] = useState("");
+export default function RoomClient({
+  params,
+}: {
+  params: Promise<{ code: string }>;
+}) {
+  const { code: rawCode } = use(params);
+  const code = rawCode.toUpperCase();
   const searchParams = useSearchParams();
   const joinName = searchParams.get("name");
-
-  useEffect(() => {
-    params.then((p) => setCode(p.code.toUpperCase()));
-  }, [params]);
 
   const { room, error, loading, refresh } = useRoom(code);
   const [playerId, setPlayerId] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
   const [joining, setJoining] = useState(false);
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [readying, setReadying] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -49,10 +52,22 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     }
   }, [code]);
 
+  useEffect(() => {
+    if (room?.status === "ranking") {
+      setRankings([]);
+      setSubmitted(false);
+    }
+  }, [room?.status, room?.movieIds.join("|")]);
+
   const isInRoom = room?.players.some((p) => p.id === playerId) ?? false;
   const isHost = room?.hostId === playerId;
   const me = room?.players.find((p) => p.id === playerId);
   const movies = room?.movies ?? [];
+  const customPicks = room?.customPicks ?? [];
+  const myPickIds = customPicks
+    .filter((p) => p.addedBy === playerId)
+    .map((p) => p.tmdbId);
+  const readyCount = room?.players.filter((p) => p.picksReady).length ?? 0;
 
   const handleJoin = async () => {
     if (!joinInput.trim() || !code) return;
@@ -76,8 +91,23 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     try {
       await startRoomApi(code, playerId);
       await refresh();
+    } catch {
+      alert("Need at least two people to start.");
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleReady = async (ready: boolean) => {
+    if (!playerId || !code) return;
+    setReadying(true);
+    try {
+      await setPicksReadyApi(code, playerId, ready);
+      await refresh();
+    } catch {
+      alert("Couldn't update. Add a couple of movies first, or try again.");
+    } finally {
+      setReadying(false);
     }
   };
 
@@ -109,9 +139,14 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     await refresh();
   };
 
-  const handleAddCustom = async (tmdbId: number) => {
+  const handleAddCustom = async (movie: {
+    tmdbId: number;
+    title: string;
+    year: number;
+    posterUrl: string | null;
+  }) => {
     if (!playerId || !code) return;
-    await addCustomMovieApi(code, playerId, tmdbId);
+    await addCustomMovieApi(code, playerId, movie.tmdbId, movie);
     await refresh();
   };
 
@@ -128,7 +163,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
     setTimeout(() => setCopied(false), 2000);
   }, [code]);
 
-  if (!code || loading) {
+  if (loading) {
     return (
       <CinemaShell>
         <p className="text-stone-500">Loading room...</p>
@@ -139,7 +174,9 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
   if (error || !room) {
     return (
       <CinemaShell>
-        <p className="text-stone-400">Room not found. Check the code and try again.</p>
+        <p className="text-stone-400">
+          Room not found. Check the code and try again.
+        </p>
       </CinemaShell>
     );
   }
@@ -176,7 +213,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
           <RoomInvite code={code} onCopy={copyLink} copied={copied} />
 
           <div className="rounded-2xl border border-cinema-600 bg-cinema-800/60 p-4">
-            <p className="text-sm text-stone-500 mb-3">
+            <p className="mb-3 text-sm text-stone-500">
               {room.players.length}/{room.expectedPlayers} joined
             </p>
             <ul className="space-y-2">
@@ -184,20 +221,12 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
                 <li key={p.id} className="text-lg text-stone-200">
                   {p.name}{" "}
                   {p.isHost && (
-                    <span className="text-butter-500 text-sm">(host)</span>
+                    <span className="text-sm text-butter-500">(host)</span>
                   )}
                 </li>
               ))}
             </ul>
           </div>
-
-          {isHost && room.tmdbEnabled && (
-            <MovieSearch
-              selectedIds={room.customTmdbIds}
-              onAdd={handleAddCustom}
-              onRemove={handleRemoveCustom}
-            />
-          )}
 
           {isHost ? (
             <button
@@ -209,11 +238,158 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
               {starting
                 ? "Starting..."
                 : room.players.length < 2
-                  ? "Waiting for everyone to join..."
-                  : "Everyone's here! Start ranking!"}
+                  ? "Need at least one more person"
+                  : room.players.length < room.expectedPlayers
+                    ? `Start with ${room.players.length} of ${room.expectedPlayers}`
+                    : "Everyone's here. Start"}
             </button>
           ) : (
-            <p className="text-stone-500 text-center">Waiting for the host to start...</p>
+            <p className="text-center text-stone-500">
+              Waiting for everyone to join...
+            </p>
+          )}
+        </div>
+      </CinemaShell>
+    );
+  }
+
+  if (room.status === "picking") {
+    const playerNameById = Object.fromEntries(
+      room.players.map((p) => [p.id, p.name])
+    );
+    const iAmReady = Boolean(me?.picksReady);
+
+    return (
+      <CinemaShell>
+        <div className="w-full max-w-md space-y-6">
+          <div className="text-center">
+            <p className="mb-1 text-sm uppercase tracking-[0.25em] text-butter-500">
+              Build the list
+            </p>
+            <h2 className="text-2xl font-bold text-stone-100">
+              What do you want to watch?
+            </h2>
+            <p className="mt-1 text-sm text-stone-500">
+              {readyCount}/{room.players.length} ready
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-cinema-600 bg-cinema-800/60 p-4">
+            <ul className="space-y-2">
+              {room.players.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between text-stone-200"
+                >
+                  <span>
+                    {p.name}
+                    {p.isHost ? (
+                      <span className="ml-1 text-sm text-butter-500">(host)</span>
+                    ) : null}
+                  </span>
+                  <span
+                    className={`text-sm ${
+                      p.picksReady ? "text-emerald-400" : "text-stone-600"
+                    }`}
+                  >
+                    {p.picksReady ? "Ready" : "Still adding"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {room.tmdbEnabled && !iAmReady && (
+            <MovieSearch
+              selectedIds={myPickIds}
+              onAdd={handleAddCustom}
+              onRemove={handleRemoveCustom}
+              label="Movies you want in the mix"
+            />
+          )}
+
+          {customPicks.length > 0 && (
+            <div className="space-y-3 rounded-2xl border border-cinema-600 bg-cinema-800/40 p-4">
+              <p className="text-sm text-stone-400">
+                In the mix · {customPicks.length}
+              </p>
+              <ul className="space-y-2">
+                {customPicks.map((pick) => {
+                  const canRemove =
+                    !iAmReady && (isHost || pick.addedBy === playerId);
+                  const by =
+                    pick.addedBy === playerId
+                      ? "you"
+                      : playerNameById[pick.addedBy] || "someone";
+                  return (
+                    <li
+                      key={pick.tmdbId}
+                      className="flex items-center gap-3 text-left"
+                    >
+                      {pick.posterUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={pick.posterUrl}
+                          alt=""
+                          className="h-12 w-8 rounded object-cover bg-cinema-700"
+                        />
+                      ) : (
+                        <span className="flex h-12 w-8 items-center justify-center text-lg">
+                          🎬
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-stone-100">
+                          {pick.title}
+                          {pick.year ? ` (${pick.year})` : ""}
+                        </p>
+                        <p className="text-xs text-stone-500">added by {by}</p>
+                      </div>
+                      {canRemove && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCustom(pick.tmdbId)}
+                          className="cursor-pointer text-xs text-stone-500 hover:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {!room.tmdbEnabled && (
+            <p className="text-center text-sm text-stone-500">
+              Suggested movies will be used when everyone is ready.
+            </p>
+          )}
+
+          {iAmReady ? (
+            <div className="space-y-3">
+              <p className="text-center text-stone-400">
+                You&apos;re ready. Waiting on the others...
+              </p>
+              <button
+                type="button"
+                onClick={() => handleReady(false)}
+                disabled={readying}
+                className="w-full cursor-pointer rounded-2xl border border-cinema-600 py-3 text-stone-400 hover:text-stone-200 disabled:opacity-40"
+              >
+                Edit my picks
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleReady(true)}
+              disabled={readying}
+              className="w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
+            >
+              {readying ? "Saving..." : "I'm ready"}
+            </button>
           )}
         </div>
       </CinemaShell>
@@ -250,9 +426,7 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
 
   return (
     <CinemaShell>
-      <p className="text-sm text-stone-500 text-center">
-        Hi {playerName} · rank in private, then submit
-      </p>
+      <p className="text-center text-sm text-stone-500">Hi {playerName}</p>
 
       <MovieRanker
         movies={movies}
@@ -265,9 +439,9 @@ export default function RoomClient({ params }: { params: Promise<{ code: string 
         type="button"
         onClick={handleSubmit}
         disabled={submitting || rankings.length !== movies.length}
-        className="w-full max-w-lg rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer"
+        className="w-full max-w-lg cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
       >
-        {submitting ? "Submitting..." : "Lock in my rankings 🔒"}
+        {submitting ? "Submitting..." : "I'm happy with this list"}
       </button>
     </CinemaShell>
   );

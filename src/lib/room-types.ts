@@ -1,7 +1,8 @@
 import type { Mood } from "@/types/movie";
+import { normalizeMoods } from "@/types/movie";
 import type { Movie } from "@/types/movie";
 
-export type RoomStatus = "lobby" | "ranking" | "revealed";
+export type RoomStatus = "lobby" | "picking" | "ranking" | "revealed";
 
 export type VetoResponse = "pending" | "accept" | "veto";
 
@@ -9,10 +10,19 @@ export type RoomPlayer = {
   id: string;
   name: string;
   isHost: boolean;
+  picksReady: boolean;
   submitted: boolean;
   rankings: string[] | null;
   vetoUsed: boolean;
   vetoResponse: VetoResponse;
+};
+
+export type CustomPick = {
+  tmdbId: number;
+  addedBy: string;
+  title: string;
+  year: number;
+  posterUrl: string | null;
 };
 
 export type MatchResult = {
@@ -25,10 +35,14 @@ export type MatchResult = {
 export type Room = {
   code: string;
   seed: string;
-  mood: Mood;
+  moods: Mood[];
+  /** Legacy single mood from older rooms */
+  mood?: Mood;
   movieIds: string[];
   movies: Record<string, Movie>;
-  customTmdbIds: number[];
+  customPicks: CustomPick[];
+  /** Legacy id-only list from older rooms */
+  customTmdbIds?: number[];
   usedMovieIds: string[];
   excludedMovieIds: string[];
   expectedPlayers: number;
@@ -39,27 +53,52 @@ export type Room = {
   createdAt: number;
 };
 
+export type PublicPlayer = {
+  id: string;
+  name: string;
+  isHost: boolean;
+  picksReady: boolean;
+  submitted: boolean;
+  vetoUsed: boolean;
+  vetoResponse: VetoResponse;
+};
+
 export type PublicRoom = {
   code: string;
-  mood: Mood;
+  moods: Mood[];
   movieIds: string[];
   movies: Movie[];
-  customTmdbIds: number[];
+  customPicks: CustomPick[];
   expectedPlayers: number;
   status: RoomStatus;
-  players: {
-    id: string;
-    name: string;
-    isHost: boolean;
-    submitted: boolean;
-    vetoUsed: boolean;
-    vetoResponse: VetoResponse;
-  }[];
+  players: PublicPlayer[];
   hostId: string;
   result: MatchResult | null;
   vetoPending: boolean;
   tmdbEnabled: boolean;
 };
+
+export function roomMoods(room: Pick<Room, "moods" | "mood">): Mood[] {
+  if (room.moods?.length) return normalizeMoods(room.moods);
+  if (room.mood) return normalizeMoods(room.mood);
+  return ["any"];
+}
+
+export function roomCustomPicks(
+  room: Pick<Room, "customPicks" | "customTmdbIds">
+): CustomPick[] {
+  if (room.customPicks?.length) return room.customPicks;
+  if (room.customTmdbIds?.length) {
+    return room.customTmdbIds.map((tmdbId) => ({
+      tmdbId,
+      addedBy: "",
+      title: `Movie ${tmdbId}`,
+      year: 0,
+      posterUrl: null,
+    }));
+  }
+  return [];
+}
 
 export function toPublicRoom(room: Room, tmdbEnabled: boolean): PublicRoom {
   const movies = room.movieIds
@@ -72,16 +111,17 @@ export function toPublicRoom(room: Room, tmdbEnabled: boolean): PublicRoom {
 
   return {
     code: room.code,
-    mood: room.mood,
+    moods: roomMoods(room),
     movieIds: room.movieIds,
     movies,
-    customTmdbIds: room.customTmdbIds,
+    customPicks: roomCustomPicks(room),
     expectedPlayers: room.expectedPlayers,
     status: room.status,
     players: room.players.map((p) => ({
       id: p.id,
       name: p.name,
       isHost: p.isHost,
+      picksReady: Boolean(p.picksReady),
       submitted: p.submitted,
       vetoUsed: p.vetoUsed,
       vetoResponse: p.vetoResponse,

@@ -35,6 +35,25 @@ export const MOODS: { id: Mood; label: string; emoji: string }[] = [
   { id: "drama", label: "Drama", emoji: "🎭" },
 ];
 
+const MOOD_IDS = new Set(MOODS.map((m) => m.id));
+
+/** Normalize to a non-empty mood list. Empty / invalid → Surprise Me. */
+export function normalizeMoods(input: unknown): Mood[] {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === "string"
+      ? [input]
+      : [];
+
+  const moods = raw.filter((m): m is Mood => typeof m === "string" && MOOD_IDS.has(m as Mood));
+
+  if (moods.length === 0 || moods.includes("any")) {
+    return ["any"];
+  }
+
+  return [...new Set(moods)];
+}
+
 export function movieIdFromTmdb(tmdbId: number): string {
   return `tmdb-${tmdbId}`;
 }

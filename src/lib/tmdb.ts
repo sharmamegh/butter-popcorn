@@ -1,5 +1,6 @@
+import { DISCOVERY_FILL_COUNT } from "@/lib/constants";
 import type { Mood, Movie } from "@/types/movie";
-import { movieIdFromTmdb, parseTmdbId } from "@/types/movie";
+import { movieIdFromTmdb, normalizeMoods, parseTmdbId } from "@/types/movie";
 import { MOVIE_CATALOG, getMovieById } from "@/data/movies";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
@@ -76,6 +77,11 @@ type TmdbMovieDetail = TmdbMovie & {
   tagline?: string;
 };
 
+/**
+ * TMDB auth: use the v3 **API Key** (query param `api_key`).
+ * The "API Read Access Token" is a Bearer token for a different auth style;
+ * this app is wired for the API Key only.
+ */
 function hasTmdbKey(): boolean {
   return Boolean(process.env.TMDB_API_KEY);
 }
@@ -191,10 +197,14 @@ export async function searchTmdbMovies(query: string): Promise<Movie[]> {
 }
 
 async function discoverPage(
-  mood: Mood,
+  moods: Mood[],
   page: number
 ): Promise<TmdbMovie[]> {
-  const genres = MOOD_GENRES[mood];
+  const genreIds = [
+    ...new Set(
+      normalizeMoods(moods).flatMap((mood) => MOOD_GENRES[mood] ?? [])
+    ),
+  ];
   const params: Record<string, string> = {
     sort_by: "popularity.desc",
     include_adult: "false",
@@ -204,8 +214,9 @@ async function discoverPage(
     "vote_average.gte": "6.0",
   };
 
-  if (genres.length > 0) {
-    params.with_genres = genres.join(",");
+  // Pipe = OR so comedy + horror means either vibe, not both at once
+  if (genreIds.length > 0) {
+    params.with_genres = genreIds.join("|");
   }
 
   const data = await tmdbFetch<{ results: TmdbMovie[] }>(
@@ -230,31 +241,44 @@ export async function fetchTmdbMovieDetails(tmdbId: number): Promise<Movie | nul
 
 export async function buildSessionMovies(options: {
   seed: string;
-  mood: Mood;
+  moods: Mood[];
   count?: number;
   excludeIds?: string[];
   customTmdbIds?: number[];
+  /** When false, only custom picks are returned (no discovery padding). */
+  fillFromDiscovery?: boolean;
 }): Promise<Movie[]> {
   const {
     seed,
-    mood,
-    count = 8,
+    moods,
+    count = DISCOVERY_FILL_COUNT,
     excludeIds = [],
     customTmdbIds = [],
+    fillFromDiscovery = true,
   } = options;
 
   const exclude = new Set(excludeIds);
+  const customIds = [...new Set(customTmdbIds)];
+  const normalizedMoods = normalizeMoods(moods);
 
   if (!hasTmdbKey()) {
-    const staticMovies = getStaticSessionMovies(seed, count + customTmdbIds.length);
+    const staticMovies = getStaticSessionMovies(seed, Math.max(count, customIds.length));
     const pool = staticMovies.filter((m) => !exclude.has(m.id));
-    return pool.slice(0, count);
+    return pool.slice(0, Math.max(count, 1));
   }
 
   const customMovies: Movie[] = [];
-  for (const id of customTmdbIds) {
+  for (const id of customIds) {
     const movie = await fetchTmdbMovieDetails(id);
     if (movie && !exclude.has(movie.id)) customMovies.push(movie);
+  }
+
+  if (!fillFromDiscovery) {
+    return customMovies;
+  }
+
+  if (customMovies.length >= count) {
+    return customMovies;
   }
 
   const h = hashSeed(seed);
@@ -263,24 +287,30 @@ export async function buildSessionMovies(options: {
 
   for (let i = 0; i < 3; i++) {
     const page = startPage + i;
-    const results = await discoverPage(mood, page);
+    const results = await discoverPage(normalizedMoods, page);
     candidates.push(...results);
   }
 
-  const customIds = new Set(customTmdbIds);
+  const customIdSet = new Set(customIds);
   const seen = new Set<string>([...exclude]);
   const unique: TmdbMovie[] = [];
 
   for (const c of candidates) {
     const id = movieIdFromTmdb(c.id);
-    if (seen.has(id) || customIds.has(c.id)) continue;
+    if (seen.has(id) || customIdSet.has(c.id)) continue;
     seen.add(id);
     unique.push(c);
   }
 
   const shuffled = seededShuffle(unique, seed);
   const slots = Math.max(0, count - customMovies.length);
-  const picked = shuffled.slice(0, slots).map(tmdbToMovie);
+  const pickedRaw = shuffled.slice(0, slots);
+  const picked = await Promise.all(
+    pickedRaw.map(async (item) => {
+      const detailed = await fetchTmdbMovieDetails(item.id);
+      return detailed ?? tmdbToMovie(item);
+    })
+  );
 
   return [...customMovies, ...picked];
 }

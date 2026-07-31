@@ -68,7 +68,9 @@ export function RevealScreen({
         {movie.description}
       </p>
 
-      <ThemeTags themes={movie.themes} />
+      <div className="mt-2">
+        <ThemeTags themes={movie.themes} />
+      </div>
 
       <div className="rounded-2xl border border-butter-400/30 bg-butter-400/10 px-5 py-4">
         <p className="text-lg font-medium text-butter-200">{result.insight}</p>

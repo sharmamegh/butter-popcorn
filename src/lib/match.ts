@@ -81,7 +81,7 @@ function buildInsight(room: Room, winnerId: string): string {
     const [a, b] = ranks;
     if (a <= 2 && b <= 2) return "Both ranked this near the top. Clear favorite.";
     if (Math.max(a, b) <= 4) return "Solid compromise. Not everyone's #1, but nobody ranked it last.";
-    return "Best overlap on tonight's list. Worth a shot!";
+    return "Best overlap on this list. Worth a shot!";
   }
 
   const avgRank = ranks.reduce((a, b) => a + b, 0) / ranks.length;

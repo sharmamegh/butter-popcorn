@@ -1,0 +1,51 @@
+import { ImageResponse } from "next/og";
+
+export const size = { width: 180, height: 180 };
+export const contentType = "image/png";
+
+export default function AppleIcon() {
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "#0a0705",
+        }}
+      >
+        <svg
+          width="140"
+          height="140"
+          viewBox="0 0 32 32"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M9.5 15.5h13l-1.4 12.2a1.2 1.2 0 0 1-1.2 1.1H12.1a1.2 1.2 0 0 1-1.2-1.1L9.5 15.5Z"
+            fill="#f5f0e8"
+          />
+          <path d="M12.2 15.5h2.2l-1.1 13.3h-2.1l1-13.3Z" fill="#6b1a1a" />
+          <path d="M17.6 15.5h2.2l1 13.3h-2.1l-1.1-13.3Z" fill="#6b1a1a" />
+          <rect
+            x="8.2"
+            y="14.2"
+            width="15.6"
+            height="2.4"
+            rx="0.8"
+            fill="#f5c842"
+          />
+          <ellipse cx="12.2" cy="11.2" rx="2.4" ry="2.8" fill="#fde68a" />
+          <ellipse cx="16" cy="9.4" rx="2.8" ry="3.2" fill="#f5c842" />
+          <ellipse cx="19.8" cy="11.4" rx="2.5" ry="2.9" fill="#fcd34d" />
+          <ellipse cx="14.2" cy="13.2" rx="2.1" ry="2.3" fill="#fef3c7" />
+          <ellipse cx="18" cy="13" rx="2" ry="2.2" fill="#e8a830" />
+          <ellipse cx="16.2" cy="11.6" rx="1.6" ry="1.8" fill="#fffbeb" />
+        </svg>
+      </div>
+    ),
+    { ...size }
+  );
+}

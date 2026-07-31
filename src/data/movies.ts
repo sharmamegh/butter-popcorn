@@ -1,4 +1,5 @@
 import type { Movie } from "@/types/movie";
+import { DISCOVERY_FILL_COUNT } from "@/lib/constants";
 
 function m(
   id: string,
@@ -26,7 +27,7 @@ function m(
   };
 }
 
-/** Popular, widely-loved films. Each session picks 8 at random from this pool */
+/** Popular, widely-loved films. Each session picks a random slate from this pool */
 export const MOVIE_CATALOG: Movie[] = [
   m("spirited-away", "Spirited Away", 2001, "A bathhouse of wonders awaits.",
     "A young girl enters a spirit world and works at a magical bathhouse to save her parents. A dreamy, emotional adventure full of strange creatures and quiet courage.",
@@ -136,8 +137,11 @@ export function getMoviesByIds(ids: string[]): Movie[] {
   return ids.map((id) => catalogById.get(id)).filter((m): m is Movie => !!m);
 }
 
-/** Deterministic shuffle so every device in a room sees the same 8 movies */
-export function getSessionMovies(seed: string, count = 8): Movie[] {
+/** Deterministic shuffle so every device in a room sees the same slate */
+export function getSessionMovies(
+  seed: string,
+  count = DISCOVERY_FILL_COUNT
+): Movie[] {
   const shuffled = [...MOVIE_CATALOG];
   let h = hashSeed(seed);
   for (let i = shuffled.length - 1; i > 0; i--) {
