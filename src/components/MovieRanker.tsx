@@ -143,8 +143,8 @@ export function MovieRanker({
         <p className="mt-1 text-sm text-stone-500">
           {hasPicks
             ? `${rankings.length} favorite${rankings.length === 1 ? "" : "s"}${
-                allRanked ? "" : " · the rest fall into place"
-              }${ranked.length > 0 ? " · drag to reorder" : ""}`
+                ranked.length > 0 ? " · drag to reorder" : ""
+              }`
             : `Pick a few favorites from ${movies.length}`}
         </p>
       </div>

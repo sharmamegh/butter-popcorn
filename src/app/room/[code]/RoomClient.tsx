@@ -11,11 +11,14 @@ import { RoomInvite } from "@/components/RoomInvite";
 import { RoomStatus } from "@/components/RoomStatus";
 import {
   addCustomMovieApi,
+  clearDraftRankings,
   joinRoomApi,
+  loadDraftRankings,
   loadPlayer,
   newRoundApi,
   passOnMoviesApi,
   removeCustomMovieApi,
+  saveDraftRankings,
   savePlayer,
   setPicksReadyApi,
   startRoomApi,
@@ -98,6 +101,7 @@ export default function RoomClient({
   const [copied, setCopied] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [autoJoined, setAutoJoined] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
 
   useEffect(() => {
     if (!code) return;
@@ -108,12 +112,30 @@ export default function RoomClient({
     }
   }, [code]);
 
+  const slateKey = room?.movieIds.join("|") ?? "";
+
+  // Restore draft favorites (and submitted flag) when the ranking slate loads.
   useEffect(() => {
-    if (room?.status === "ranking") {
-      setRankings([]);
-      setSubmitted(false);
+    if (!room || room.status !== "ranking" || !playerId) {
+      setDraftReady(false);
+      return;
     }
-  }, [room?.status, room?.movieIds.join("|")]);
+    setRankings(loadDraftRankings(code, playerId, room.movieIds));
+    const alreadyIn =
+      room.players.find((p) => p.id === playerId)?.submitted ?? false;
+    setSubmitted(alreadyIn);
+    setDraftReady(true);
+  }, [room?.status, slateKey, playerId, code]);
+
+  // Keep draft favorites across refresh while still ranking.
+  useEffect(() => {
+    if (!draftReady || !code || !playerId || room?.status !== "ranking") return;
+    if (submitted) {
+      clearDraftRankings(code, playerId);
+      return;
+    }
+    saveDraftRankings(code, playerId, room.movieIds, rankings);
+  }, [draftReady, code, playerId, rankings, submitted, room?.status, slateKey]);
 
   // During a pass countdown, keep syncing local favorites so they join the mix.
   useEffect(() => {
@@ -222,6 +244,7 @@ export default function RoomClient({
     setSubmitting(true);
     try {
       await submitRankingsApi(code, playerId, rankings);
+      clearDraftRankings(code, playerId);
       setSubmitted(true);
     } catch {
       // refresh below
@@ -234,6 +257,7 @@ export default function RoomClient({
   const handleNewRound = async () => {
     if (!playerId || !code) return;
     await newRoundApi(code, playerId);
+    clearDraftRankings(code, playerId);
     setRankings([]);
     setSubmitted(false);
     await refresh();

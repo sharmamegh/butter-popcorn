@@ -39,6 +39,64 @@ export function loadPlayer(roomCode: string): { playerId: string; name: string }
   }
 }
 
+const draftKey = (roomCode: string, playerId: string) =>
+  `${PLAYER_KEY}:draft:${roomCode.toUpperCase()}:${playerId}`;
+
+type DraftRankings = {
+  movieIds: string[];
+  rankings: string[];
+};
+
+/** Persist in-progress favorites so a refresh doesn't wipe them. */
+export function saveDraftRankings(
+  roomCode: string,
+  playerId: string,
+  movieIds: string[],
+  rankings: string[]
+) {
+  try {
+    const payload: DraftRankings = { movieIds, rankings };
+    localStorage.setItem(
+      draftKey(roomCode, playerId),
+      JSON.stringify(payload)
+    );
+  } catch {
+    // private mode / quota
+  }
+}
+
+/** Restore draft favorites for this room slate; empty if slate changed. */
+export function loadDraftRankings(
+  roomCode: string,
+  playerId: string,
+  movieIds: string[]
+): string[] {
+  try {
+    const raw = localStorage.getItem(draftKey(roomCode, playerId));
+    if (!raw) return [];
+    const data = JSON.parse(raw) as DraftRankings;
+    if (!Array.isArray(data.movieIds) || !Array.isArray(data.rankings)) {
+      return [];
+    }
+    const sameSlate =
+      data.movieIds.length === movieIds.length &&
+      data.movieIds.every((id, i) => id === movieIds[i]);
+    if (!sameSlate) return [];
+    const valid = new Set(movieIds);
+    return data.rankings.filter((id) => valid.has(id));
+  } catch {
+    return [];
+  }
+}
+
+export function clearDraftRankings(roomCode: string, playerId: string) {
+  try {
+    localStorage.removeItem(draftKey(roomCode, playerId));
+  } catch {
+    // private mode
+  }
+}
+
 export function useRoom(code: string) {
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [error, setError] = useState<string | null>(null);
