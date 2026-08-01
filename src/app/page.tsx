@@ -4,17 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
 import { CinemaShell } from "@/components/CinemaShell";
-import { MoodPicker } from "@/components/MoodPicker";
 import { createRoom, savePlayer } from "@/hooks/useRoom";
 import { PLAYER_SIZE_OPTIONS } from "@/lib/constants";
-import type { Mood } from "@/types/movie";
 
 export default function Home() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [players, setPlayers] = useState(2);
-  const [moods, setMoods] = useState<Mood[]>(["any"]);
   const [loading, setLoading] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -30,7 +27,7 @@ export default function Home() {
     setLoading(true);
     setCreateError(null);
     try {
-      const data = await createRoom(name.trim(), players, moods);
+      const data = await createRoom(name.trim(), players);
       savePlayer(data.code, data.playerId, name.trim());
       router.push(`/room/${data.code}`);
     } catch (err) {
@@ -102,8 +99,6 @@ export default function Home() {
               </div>
             </div>
 
-            <MoodPicker selected={moods} onChange={setMoods} />
-
             {createError && (
               <p className="text-sm text-red-300/90 text-center" role="alert">
                 {createError}
@@ -165,7 +160,7 @@ export default function Home() {
 
       <ol className="text-sm text-stone-600 space-y-2 max-w-lg text-center list-none">
         <li>1. Everyone joins the room</li>
-        <li>2. Add movies you want, then tap ready</li>
+        <li>2. Share what you&apos;re in the mood for, add movies, then tap ready</li>
         <li>3. Rank the shared list and find the winner</li>
       </ol>
     </CinemaShell>

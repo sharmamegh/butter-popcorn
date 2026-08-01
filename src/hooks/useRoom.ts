@@ -169,13 +169,12 @@ export function useRoom(code: string) {
 
 export async function createRoom(
   hostName: string,
-  expectedPlayers: number,
-  moods: string[]
+  expectedPlayers: number
 ) {
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hostName, expectedPlayers, moods }),
+    body: JSON.stringify({ hostName, expectedPlayers }),
   });
   if (!res.ok) {
     let message = "Failed to create room";
@@ -224,12 +223,21 @@ export async function startRoomApi(code: string, playerId: string) {
   return roomAction(code, { action: "start", playerId });
 }
 
+export async function setPlayerMoodsApi(
+  code: string,
+  playerId: string,
+  moods: string[]
+) {
+  return roomAction(code, { action: "moods", playerId, moods });
+}
+
 export async function setPicksReadyApi(
   code: string,
   playerId: string,
-  ready = true
+  ready = true,
+  moods?: string[]
 ) {
-  return roomAction(code, { action: "ready", playerId, ready });
+  return roomAction(code, { action: "ready", playerId, ready, moods });
 }
 
 export async function submitRankingsApi(

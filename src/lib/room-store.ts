@@ -3,7 +3,11 @@ import { getSessionMovies } from "@/data/movies";
 import { calculateMatch, completeRankings } from "@/lib/match";
 import { getStorage } from "@/lib/room-storage";
 import type { CustomPick, Room, RoomPlayer } from "@/lib/room-types";
-import { roomCustomPicks, roomMoods } from "@/lib/room-types";
+import {
+  aggregatePlayerMoods,
+  roomCustomPicks,
+  roomMoods,
+} from "@/lib/room-types";
 import { buildSessionMovies, isTmdbEnabled } from "@/lib/tmdb";
 import type { Mood } from "@/types/movie";
 import { movieIdFromTmdb, normalizeMoods } from "@/types/movie";
@@ -69,8 +73,7 @@ export function generatePlayerId(): string {
 
 export async function createRoom(
   hostName: string,
-  expectedPlayers = 2,
-  moods: Mood[] = ["any"]
+  expectedPlayers = 2
 ): Promise<Room> {
   const storage = getStorage();
   let code = generateCode();
@@ -84,7 +87,8 @@ export async function createRoom(
   const room: Room = {
     code,
     seed,
-    moods: normalizeMoods(moods),
+    // Aggregated from player moods once everyone is ready.
+    moods: ["any"],
     movieIds: [],
     movies: {},
     customPicks: [],
@@ -107,6 +111,7 @@ export async function createRoom(
         isHost: true,
         picksReady: false,
         submitted: false,
+        moods: ["any"],
         rankings: null,
         pickedIds: null,
         vetoUsed: false,
@@ -246,6 +251,7 @@ export async function joinRoom(
     isHost: false,
     picksReady: false,
     submitted: false,
+    moods: ["any"],
     rankings: null,
     pickedIds: null,
     vetoUsed: false,
@@ -387,6 +393,8 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
 }
 
 async function beginRanking(room: Room): Promise<Room | null> {
+  room.moods = aggregatePlayerMoods(room.players);
+
   const seed = `${room.code}-${Date.now()}`;
   const movies = await buildRoundMovies(room, seed);
   if (movies.length < 2) return null;
@@ -412,11 +420,30 @@ async function beginRanking(room: Room): Promise<Room | null> {
   return room;
 }
 
+/** Update your mood picks while still building the list. */
+export async function setPlayerMoods(
+  code: string,
+  playerId: string,
+  moods: Mood[]
+): Promise<Room | null> {
+  const room = await getRoom(code);
+  if (!room || room.status !== "picking") return null;
+
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || player.picksReady) return null;
+
+  player.moods = normalizeMoods(moods);
+  room.moods = aggregatePlayerMoods(room.players);
+  await saveRoom(room);
+  return room;
+}
+
 /** Mark yourself ready. When everyone is ready, ranking starts automatically. */
 export async function setPicksReady(
   code: string,
   playerId: string,
-  ready: boolean
+  ready: boolean,
+  moods?: Mood[]
 ): Promise<Room | null> {
   const room = await getRoom(code);
   if (!room || room.status !== "picking") return null;
@@ -424,7 +451,12 @@ export async function setPicksReady(
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return null;
 
+  if (ready && moods !== undefined) {
+    player.moods = normalizeMoods(moods);
+  }
+
   player.picksReady = ready;
+  room.moods = aggregatePlayerMoods(room.players);
 
   if (!(ready && room.players.every((p) => p.picksReady))) {
     await saveRoom(room);

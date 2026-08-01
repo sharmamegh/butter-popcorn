@@ -1,9 +1,10 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
+import { MoodPicker } from "@/components/MoodPicker";
 import { MovieRanker, WaitingForOthers } from "@/components/MovieRanker";
 import { MovieSearch } from "@/components/MovieSearch";
 import { RevealScreen } from "@/components/RevealScreen";
@@ -21,12 +22,15 @@ import {
   saveDraftRankings,
   savePlayer,
   setPicksReadyApi,
+  setPlayerMoodsApi,
   startRoomApi,
   submitRankingsApi,
   syncPassFavoritesApi,
   useRoom,
   vetoApi,
 } from "@/hooks/useRoom";
+import type { Mood } from "@/types/movie";
+import { normalizeMoods } from "@/types/movie";
 
 function roomStatusKind(
   error: string | null
@@ -34,6 +38,39 @@ function roomStatusKind(
   if (error === "Connection error") return "offline";
   if (error === "Couldn't load room") return "error";
   return "missing";
+}
+
+function moodSummary(moods: Mood[] | undefined): string {
+  const normalized = normalizeMoods(moods ?? ["any"]);
+  if (normalized.includes("any")) return "Open to anything";
+  return normalized
+    .map((id) => {
+      switch (id) {
+        case "feel-good":
+          return "Feel Good";
+        case "comedy":
+          return "Comedy";
+        case "action":
+          return "Action";
+        case "romance":
+          return "Romance";
+        case "sci-fi":
+          return "Sci-Fi";
+        case "horror":
+          return "Horror";
+        case "thriller":
+          return "Thriller";
+        case "drama":
+          return "Drama";
+        case "any":
+          return "Surprise Me";
+        default: {
+          const _exhaustive: never = id;
+          return _exhaustive;
+        }
+      }
+    })
+    .join(" · ");
 }
 
 function PassCountdown({
@@ -102,6 +139,9 @@ export default function RoomClient({
   const [joinError, setJoinError] = useState<string | null>(null);
   const [autoJoined, setAutoJoined] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
+  const [myMoods, setMyMoods] = useState<Mood[]>(["any"]);
+  const [moodsSynced, setMoodsSynced] = useState(false);
+  const moodSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!code) return;
@@ -167,6 +207,30 @@ export default function RoomClient({
   const myPicks = customPicks.filter((p) => p.addedBy === playerId);
   const readyCount = room?.players.filter((p) => p.picksReady).length ?? 0;
 
+  // Pull your saved moods from the room once you're in the picking phase.
+  useEffect(() => {
+    if (!me || room?.status !== "picking") {
+      setMoodsSynced(false);
+      return;
+    }
+    if (!moodsSynced) {
+      setMyMoods(normalizeMoods(me.moods));
+      setMoodsSynced(true);
+    }
+  }, [me, room?.status, moodsSynced]);
+
+  // If you leave picking (new round / lobby), resync next time.
+  useEffect(() => {
+    if (room?.status !== "picking") setMoodsSynced(false);
+  }, [room?.status]);
+
+  // Cleanup pending mood save on unmount.
+  useEffect(() => {
+    return () => {
+      if (moodSaveTimer.current) clearTimeout(moodSaveTimer.current);
+    };
+  }, []);
+
   const handleJoin = async () => {
     if (!joinInput.trim() || !code) return;
     setJoining(true);
@@ -226,11 +290,27 @@ export default function RoomClient({
     }
   };
 
+  const handleMoodsChange = (moods: Mood[]) => {
+    setMyMoods(moods);
+    if (!playerId || !code || me?.picksReady) return;
+    if (moodSaveTimer.current) clearTimeout(moodSaveTimer.current);
+    moodSaveTimer.current = setTimeout(() => {
+      void setPlayerMoodsApi(code, playerId, moods).catch(() => {
+        // Poll will show the last saved moods.
+      });
+    }, 250);
+  };
+
   const handleReady = async (ready: boolean) => {
     if (!playerId || !code) return;
     setReadying(true);
     try {
-      await setPicksReadyApi(code, playerId, ready);
+      await setPicksReadyApi(
+        code,
+        playerId,
+        ready,
+        ready ? myMoods : undefined
+      );
     } catch {
       // Server recovers silently; refresh shows the real state.
     } finally {
@@ -447,21 +527,32 @@ export default function RoomClient({
             </p>
           </div>
 
+          {!iAmReady && (
+            <MoodPicker selected={myMoods} onChange={handleMoodsChange} />
+          )}
+
           <div className="rounded-2xl border border-cinema-600 bg-cinema-800/60 p-4">
             <ul className="space-y-2">
               {room.players.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-center justify-between text-stone-200"
+                  className="flex items-center justify-between gap-3 text-stone-200"
                 >
-                  <span>
-                    {p.name}
-                    {p.isHost ? (
-                      <span className="ml-1 text-sm text-butter-500">(host)</span>
-                    ) : null}
+                  <span className="min-w-0">
+                    <span className="block truncate">
+                      {p.name}
+                      {p.isHost ? (
+                        <span className="ml-1 text-sm text-butter-500">
+                          (host)
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="block truncate text-xs text-stone-600">
+                      {moodSummary(p.moods)}
+                    </span>
                   </span>
                   <span
-                    className={`text-sm ${
+                    className={`shrink-0 text-sm ${
                       p.picksReady ? "text-emerald-400" : "text-stone-600"
                     }`}
                   >
@@ -551,7 +642,7 @@ export default function RoomClient({
                 disabled={readying}
                 className="w-full cursor-pointer rounded-2xl border border-cinema-600 py-3 text-stone-400 hover:text-stone-200 disabled:opacity-40"
               >
-                Edit my picks
+                Change my mood or picks
               </button>
             </div>
           ) : (

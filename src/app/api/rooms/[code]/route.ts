@@ -8,12 +8,14 @@ import {
   requestPass,
   removeCustomMovie,
   setPicksReady,
+  setPlayerMoods,
   startPicking,
   submitRankings,
   submitVetoResponse,
   syncPassFavorites,
 } from "@/lib/room-store";
 import { toPublicRoom } from "@/lib/room-types";
+import { normalizeMoods } from "@/types/movie";
 
 type RouteContext = { params: Promise<{ code: string }> };
 
@@ -56,11 +58,27 @@ export async function POST(request: Request, context: RouteContext) {
       }
       return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
+    case "moods": {
+      const room = await setPlayerMoods(
+        code,
+        body.playerId,
+        normalizeMoods(body.moods)
+      );
+      if (!room) {
+        return NextResponse.json({ error: "Cannot update moods" }, { status: 400 });
+      }
+      return NextResponse.json({
+        room: toPublicRoom(room, isTmdbEnabled()),
+      });
+    }
     case "ready": {
+      const moods =
+        body.moods !== undefined ? normalizeMoods(body.moods) : undefined;
       const room = await setPicksReady(
         code,
         body.playerId,
-        body.ready !== false
+        body.ready !== false,
+        moods
       );
       if (!room) {
         return NextResponse.json({ error: "Cannot update ready" }, { status: 400 });

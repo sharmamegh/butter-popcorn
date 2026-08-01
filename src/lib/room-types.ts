@@ -12,6 +12,8 @@ export type RoomPlayer = {
   isHost: boolean;
   picksReady: boolean;
   submitted: boolean;
+  /** Moods this player wants suggestions to lean toward. */
+  moods: Mood[];
   /** Full ordered list used for matching (favorites + auto-filled rest). */
   rankings: string[] | null;
   /** Titles this player intentionally favored before auto-fill. */
@@ -66,6 +68,7 @@ export type PublicPlayer = {
   isHost: boolean;
   picksReady: boolean;
   submitted: boolean;
+  moods: Mood[];
   vetoUsed: boolean;
   vetoResponse: VetoResponse;
 };
@@ -87,10 +90,33 @@ export type PublicRoom = {
   tmdbEnabled: boolean;
 };
 
-export function roomMoods(room: Pick<Room, "moods" | "mood">): Mood[] {
+/** Union of everyone's specific moods. "Surprise Me" means flexible. */
+export function aggregatePlayerMoods(
+  players: { moods?: Mood[] | null }[]
+): Mood[] {
+  const specific: Mood[] = [];
+  for (const player of players) {
+    for (const mood of normalizeMoods(player.moods ?? ["any"])) {
+      if (mood !== "any") specific.push(mood);
+    }
+  }
+  const unique = [...new Set(specific)];
+  return unique.length === 0 ? ["any"] : unique;
+}
+
+export function roomMoods(
+  room: Pick<Room, "moods" | "mood" | "players">
+): Mood[] {
+  if (room.players?.some((p) => p.moods?.length)) {
+    return aggregatePlayerMoods(room.players);
+  }
   if (room.moods?.length) return normalizeMoods(room.moods);
   if (room.mood) return normalizeMoods(room.mood);
   return ["any"];
+}
+
+export function playerMoods(player: { moods?: Mood[] | null }): Mood[] {
+  return normalizeMoods(player.moods ?? ["any"]);
 }
 
 export function roomCustomPicks(
@@ -132,6 +158,7 @@ export function toPublicRoom(room: Room, tmdbEnabled: boolean): PublicRoom {
       isHost: p.isHost,
       picksReady: Boolean(p.picksReady),
       submitted: p.submitted,
+      moods: playerMoods(p),
       vetoUsed: p.vetoUsed,
       vetoResponse: p.vetoResponse,
     })),
