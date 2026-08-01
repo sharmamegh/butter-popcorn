@@ -8,7 +8,11 @@ export const PLAYER_SIZE_OPTIONS = Array.from(
 );
 
 /**
- * When nobody adds movies, fill the slate from discovery.
- * When the group adds picks, every unique pick is ranked (no hard cap).
+ * Fresh suggestions added on top of whatever the group already put in the mix.
+ * Slate size = unique custom picks + this count (or this count alone when empty).
  */
 export const DISCOVERY_FILL_COUNT = 10;
+
+/** How long the group has after “none of these” before the slate resets. */
+export const PASS_COUNTDOWN_SECONDS = 10;
+export const PASS_COUNTDOWN_MS = PASS_COUNTDOWN_SECONDS * 1000;

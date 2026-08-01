@@ -1,4 +1,4 @@
-import { DISCOVERY_FILL_COUNT, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/constants";
+import { DISCOVERY_FILL_COUNT, MAX_PLAYERS, MIN_PLAYERS, PASS_COUNTDOWN_MS } from "@/lib/constants";
 import { getSessionMovies } from "@/data/movies";
 import { calculateMatch, completeRankings } from "@/lib/match";
 import { getStorage } from "@/lib/room-storage";
@@ -98,6 +98,8 @@ export async function createRoom(
     hostId,
     result: null,
     createdAt: Date.now(),
+    passDeadline: null,
+    passFavorites: {},
     players: [
       {
         id: hostId,
@@ -106,6 +108,7 @@ export async function createRoom(
         picksReady: false,
         submitted: false,
         rankings: null,
+        pickedIds: null,
         vetoUsed: false,
         vetoResponse: "pending",
       },
@@ -117,11 +120,90 @@ export async function createRoom(
 }
 
 export async function getRoom(code: string): Promise<Room | null> {
-  return getStorage().get(code);
+  const room = await getStorage().get(code);
+  if (!room) return null;
+  return settlePassIfDue(room);
 }
 
 export async function saveRoom(room: Room): Promise<void> {
   await getStorage().set(room);
+}
+
+function rememberPassFavorites(
+  room: Room,
+  playerId: string,
+  rankings: string[] | undefined
+) {
+  if (!Array.isArray(rankings) || rankings.length === 0) return;
+  const valid = new Set(room.movieIds);
+  const picked = rankings.filter((id) => valid.has(id));
+  if (picked.length === 0) return;
+  room.passFavorites = { ...(room.passFavorites ?? {}), [playerId]: picked };
+}
+
+/** Carry ranked favorites into the mix, then return everyone to picking. */
+async function finishPass(room: Room): Promise<Room> {
+  room.customPicks = roomCustomPicks(room);
+  const have = new Set(room.customPicks.map((p) => p.tmdbId));
+
+  const favoriteIds = new Set<string>();
+  for (const ids of Object.values(room.passFavorites ?? {})) {
+    for (const id of ids) favoriteIds.add(id);
+  }
+  for (const player of room.players) {
+    for (const id of player.pickedIds ?? []) favoriteIds.add(id);
+  }
+
+  for (const movieId of favoriteIds) {
+    const movie = room.movies[movieId];
+    if (!movie?.tmdbId || have.has(movie.tmdbId)) continue;
+
+    let addedBy =
+      Object.entries(room.passFavorites ?? {}).find(([, ids]) =>
+        ids.includes(movieId)
+      )?.[0] ??
+      room.players.find((p) => p.pickedIds?.includes(movieId))?.id ??
+      room.hostId;
+
+    room.customPicks.push({
+      tmdbId: movie.tmdbId,
+      addedBy,
+      title: movie.title,
+      year: movie.year || 0,
+      posterUrl: movie.posterUrl,
+    });
+    have.add(movie.tmdbId);
+  }
+
+  room.status = "picking";
+  room.result = null;
+  room.excludedMovieIds = [];
+  room.movieIds = [];
+  room.movies = {};
+  room.passDeadline = null;
+  room.passFavorites = {};
+
+  for (const player of room.players) {
+    player.picksReady = false;
+    player.submitted = false;
+    player.rankings = null;
+    player.pickedIds = null;
+    player.vetoResponse = "pending";
+  }
+
+  await saveRoom(room);
+  return room;
+}
+
+async function settlePassIfDue(room: Room): Promise<Room> {
+  if (
+    room.status === "ranking" &&
+    room.passDeadline != null &&
+    Date.now() >= room.passDeadline
+  ) {
+    return finishPass(room);
+  }
+  return room;
 }
 
 /**
@@ -165,6 +247,7 @@ export async function joinRoom(
     picksReady: false,
     submitted: false,
     rankings: null,
+    pickedIds: null,
     vetoUsed: false,
     vetoResponse: "pending",
   };
@@ -185,10 +268,13 @@ export async function startPicking(
 
   room.status = "picking";
   room.customPicks = roomCustomPicks(room);
+  room.passDeadline = null;
+  room.passFavorites = {};
   for (const player of room.players) {
     player.picksReady = false;
     player.submitted = false;
     player.rankings = null;
+    player.pickedIds = null;
   }
 
   await saveRoom(room);
@@ -252,7 +338,8 @@ export async function removeCustomMovie(
 
 async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   const customIds = uniqueCustomIds(room);
-  const count = Math.max(customIds.length, DISCOVERY_FILL_COUNT, 2);
+  // Every custom stays, plus a fresh batch of suggestions on top.
+  const count = Math.max(customIds.length + DISCOVERY_FILL_COUNT, 2);
 
   let movies: Movie[] = [];
   try {
@@ -311,10 +398,13 @@ async function beginRanking(room: Room): Promise<Room | null> {
   room.status = "ranking";
   room.result = null;
   room.excludedMovieIds = [];
+  room.passDeadline = null;
+  room.passFavorites = {};
 
   for (const player of room.players) {
     player.submitted = false;
     player.rankings = null;
+    player.pickedIds = null;
     player.vetoResponse = "pending";
   }
 
@@ -368,6 +458,7 @@ export async function submitRankings(
   const completed = completeRankings(rankings, room.movieIds);
   if (!completed) return null;
 
+  player.pickedIds = rankings;
   player.rankings = completed;
   player.submitted = true;
 
@@ -383,9 +474,12 @@ export async function submitRankings(
       // Should be unreachable after match hardening — still unstick if needed.
       clearReadyFlags(room);
       room.status = "picking";
+      room.passDeadline = null;
+      room.passFavorites = {};
       for (const p of room.players) {
         p.submitted = false;
         p.rankings = null;
+        p.pickedIds = null;
       }
     }
   }
@@ -449,6 +543,47 @@ export async function submitVetoResponse(
   return room;
 }
 
+/**
+ * Start (or join) a countdown before abandoning the current slate.
+ * Favorites already ranked are synced so they join the mix when it fires.
+ */
+export async function requestPass(
+  code: string,
+  playerId: string,
+  rankings: string[] = []
+): Promise<Room | null> {
+  const room = await getRoom(code);
+  if (!room) return null;
+  if (room.status !== "ranking") return room;
+  if (!room.players.some((p) => p.id === playerId)) return null;
+
+  rememberPassFavorites(room, playerId, rankings);
+
+  if (room.passDeadline == null) {
+    room.passDeadline = Date.now() + PASS_COUNTDOWN_MS;
+  }
+
+  await saveRoom(room);
+  return room;
+}
+
+/** Push the latest favorites during an active countdown. */
+export async function syncPassFavorites(
+  code: string,
+  playerId: string,
+  rankings: string[] = []
+): Promise<Room | null> {
+  const room = await getRoom(code);
+  if (!room) return null;
+  if (room.status !== "ranking") return room;
+  if (room.passDeadline == null) return room;
+  if (!room.players.some((p) => p.id === playerId)) return null;
+
+  rememberPassFavorites(room, playerId, rankings);
+  await saveRoom(room);
+  return room;
+}
+
 /** Host starts a fresh picking round (keeps or clears picks via resetPicks). */
 export async function newRound(
   code: string,
@@ -463,6 +598,8 @@ export async function newRound(
   room.excludedMovieIds = [];
   room.movieIds = [];
   room.movies = {};
+  room.passDeadline = null;
+  room.passFavorites = {};
   if (options.clearPicks !== false) {
     room.customPicks = [];
   }
@@ -471,6 +608,7 @@ export async function newRound(
     player.picksReady = false;
     player.submitted = false;
     player.rankings = null;
+    player.pickedIds = null;
     player.vetoResponse = "pending";
   }
 

@@ -8,13 +8,12 @@ type SelectedPick = {
   title: string;
   year: number;
   posterUrl: string | null;
-  emoji: string;
 };
 
 export function MovieSearch({
   onAdd,
   onRemove,
-  selectedIds,
+  selectedPicks,
   label = "Add movies you want",
 }: {
   onAdd: (movie: {
@@ -24,14 +23,18 @@ export function MovieSearch({
     posterUrl: string | null;
   }) => void;
   onRemove: (tmdbId: number) => void;
-  selectedIds: number[];
+  /** Server-known picks (source of truth for chip titles). */
+  selectedPicks: SelectedPick[];
   label?: string;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
   const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [picks, setPicks] = useState<SelectedPick[]>([]);
+  /** Optimistic chips until the parent refresh confirms them. */
+  const [pending, setPending] = useState<SelectedPick[]>([]);
+
+  const selectedIds = selectedPicks.map((p) => p.tmdbId);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,9 +51,11 @@ export function MovieSearch({
     };
   }, []);
 
+  // Drop optimistic entries once the server list includes them.
   useEffect(() => {
-    setPicks((prev) => prev.filter((p) => selectedIds.includes(p.tmdbId)));
-  }, [selectedIds]);
+    const confirmed = new Set(selectedPicks.map((p) => p.tmdbId));
+    setPending((prev) => prev.filter((p) => !confirmed.has(p.tmdbId)));
+  }, [selectedPicks]);
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -81,25 +86,22 @@ export function MovieSearch({
     const id = movie.tmdbId;
     if (id == null || selectedIds.includes(id)) return;
 
-    setPicks((prev) => [
-      ...prev.filter((p) => p.tmdbId !== id),
-      {
-        tmdbId: id,
-        title: movie.title,
-        year: movie.year,
-        posterUrl: movie.posterUrl,
-        emoji: movie.emoji,
-      },
-    ]);
-    onAdd({
+    const entry: SelectedPick = {
       tmdbId: id,
       title: movie.title,
       year: movie.year,
       posterUrl: movie.posterUrl,
-    });
+    };
+    setPending((prev) => [...prev.filter((p) => p.tmdbId !== id), entry]);
+    onAdd(entry);
     setQuery("");
     setResults([]);
   };
+
+  const chips: SelectedPick[] = [
+    ...selectedPicks,
+    ...pending.filter((p) => !selectedIds.includes(p.tmdbId)),
+  ];
 
   if (enabled === null || !enabled) {
     return null;
@@ -109,21 +111,18 @@ export function MovieSearch({
     <div className="space-y-2">
       <span className="text-sm text-stone-400 block">{label}</span>
 
-      {selectedIds.length > 0 && (
+      {chips.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {selectedIds.map((id) => {
-            const pick = picks.find((p) => p.tmdbId === id);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => onRemove(id)}
-                className="rounded-full bg-butter-400/15 border border-butter-400/40 px-3 py-1 text-xs text-butter-300 cursor-pointer"
-              >
-                {pick ? `${pick.title} ✕` : `Remove ✕`}
-              </button>
-            );
-          })}
+          {chips.map((pick) => (
+            <button
+              key={pick.tmdbId}
+              type="button"
+              onClick={() => onRemove(pick.tmdbId)}
+              className="rounded-full bg-butter-400/15 border border-butter-400/40 px-3 py-1 text-xs text-butter-300 cursor-pointer"
+            >
+              {pick.title} ✕
+            </button>
+          ))}
         </div>
       )}
 
@@ -139,7 +138,9 @@ export function MovieSearch({
         <ul className="max-h-48 overflow-y-auto space-y-1 rounded-xl border border-cinema-600 bg-cinema-900/80 p-2">
           {results.map((movie) => {
             const id = movie.tmdbId!;
-            const added = selectedIds.includes(id);
+            const added =
+              selectedIds.includes(id) ||
+              pending.some((p) => p.tmdbId === id);
             return (
               <li key={movie.id}>
                 <button

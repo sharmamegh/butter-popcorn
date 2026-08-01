@@ -12,7 +12,10 @@ export type RoomPlayer = {
   isHost: boolean;
   picksReady: boolean;
   submitted: boolean;
+  /** Full ordered list used for matching (favorites + auto-filled rest). */
   rankings: string[] | null;
+  /** Titles this player intentionally favored before auto-fill. */
+  pickedIds: string[] | null;
   vetoUsed: boolean;
   vetoResponse: VetoResponse;
 };
@@ -51,6 +54,10 @@ export type Room = {
   hostId: string;
   result: MatchResult | null;
   createdAt: number;
+  /** When set, a "none of these" reset is counting down (unix ms). */
+  passDeadline: number | null;
+  /** Favorites synced during the countdown, keyed by player id. */
+  passFavorites: Record<string, string[]>;
 };
 
 export type PublicPlayer = {
@@ -75,6 +82,8 @@ export type PublicRoom = {
   hostId: string;
   result: MatchResult | null;
   vetoPending: boolean;
+  /** Countdown end for starting over mid-ranking, if active. */
+  passDeadline: number | null;
   tmdbEnabled: boolean;
 };
 
@@ -129,6 +138,7 @@ export function toPublicRoom(room: Room, tmdbEnabled: boolean): PublicRoom {
     hostId: room.hostId,
     result: room.result,
     vetoPending,
+    passDeadline: room.passDeadline ?? null,
     tmdbEnabled,
   };
 }

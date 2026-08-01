@@ -219,7 +219,13 @@ export function MovieRanker({
   );
 }
 
-export function WaitingForOthers({ names }: { names: string[] }) {
+export function WaitingForOthers({
+  names,
+  action,
+}: {
+  names: string[];
+  action?: ReactNode;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -229,6 +235,7 @@ export function WaitingForOthers({ names }: { names: string[] }) {
       <div className="animate-pulse text-5xl">🍿</div>
       <h2 className="text-2xl font-bold text-stone-100">You're all set</h2>
       <p className="text-stone-400">Waiting on {names.join(", ")}.</p>
+      {action}
     </motion.div>
   );
 }

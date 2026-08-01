@@ -5,11 +5,13 @@ import {
   isTmdbEnabled,
   joinRoom,
   newRound,
+  requestPass,
   removeCustomMovie,
   setPicksReady,
   startPicking,
   submitRankings,
   submitVetoResponse,
+  syncPassFavorites,
 } from "@/lib/room-store";
 import { toPublicRoom } from "@/lib/room-types";
 
@@ -71,6 +73,22 @@ export async function POST(request: Request, context: RouteContext) {
       const room = await submitRankings(code, body.playerId, body.rankings);
       if (!room) {
         return NextResponse.json({ error: "Invalid rankings" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
+    }
+    case "pass": {
+      const rankings = Array.isArray(body.rankings) ? body.rankings : [];
+      const room = await requestPass(code, body.playerId, rankings);
+      if (!room) {
+        return NextResponse.json({ error: "Cannot pass" }, { status: 400 });
+      }
+      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
+    }
+    case "pass-favorites": {
+      const rankings = Array.isArray(body.rankings) ? body.rankings : [];
+      const room = await syncPassFavorites(code, body.playerId, rankings);
+      if (!room) {
+        return NextResponse.json({ error: "Cannot sync" }, { status: 400 });
       }
       return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }

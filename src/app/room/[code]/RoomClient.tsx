@@ -14,11 +14,13 @@ import {
   joinRoomApi,
   loadPlayer,
   newRoundApi,
+  passOnMoviesApi,
   removeCustomMovieApi,
   savePlayer,
   setPicksReadyApi,
   startRoomApi,
   submitRankingsApi,
+  syncPassFavoritesApi,
   useRoom,
   vetoApi,
 } from "@/hooks/useRoom";
@@ -29,6 +31,47 @@ function roomStatusKind(
   if (error === "Connection error") return "offline";
   if (error === "Couldn't load room") return "error";
   return "missing";
+}
+
+function PassCountdown({
+  deadline,
+  onElapsed,
+}: {
+  deadline: number;
+  onElapsed: () => void;
+}) {
+  const [seconds, setSeconds] = useState(() =>
+    Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+  );
+
+  useEffect(() => {
+    let fired = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setSeconds(left);
+      if (left <= 0 && !fired) {
+        fired = true;
+        onElapsed();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [deadline, onElapsed]);
+
+  return (
+    <div
+      className="mx-auto w-full max-w-lg rounded-2xl border border-butter-500/40 bg-butter-500/10 px-4 py-3 text-center"
+      role="status"
+    >
+      <p className="text-lg font-semibold text-butter-300">
+        Starting over in {seconds}…
+      </p>
+      <p className="mt-1 text-sm text-stone-400">
+        Favorites you&apos;re ranking will join the next mix.
+      </p>
+    </div>
+  );
 }
 
 export default function RoomClient({
@@ -51,6 +94,7 @@ export default function RoomClient({
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [readying, setReadying] = useState(false);
+  const [passing, setPassing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [autoJoined, setAutoJoined] = useState(false);
@@ -71,14 +115,34 @@ export default function RoomClient({
     }
   }, [room?.status, room?.movieIds.join("|")]);
 
+  // During a pass countdown, keep syncing local favorites so they join the mix.
+  useEffect(() => {
+    if (
+      !code ||
+      !playerId ||
+      room?.status !== "ranking" ||
+      room.passDeadline == null
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void syncPassFavoritesApi(code, playerId, rankings);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [code, playerId, room?.status, room?.passDeadline, rankings]);
+
+  const refreshAfterPass = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+
   const isInRoom = room?.players.some((p) => p.id === playerId) ?? false;
   const isHost = room?.hostId === playerId;
   const me = room?.players.find((p) => p.id === playerId);
   const movies = room?.movies ?? [];
   const customPicks = room?.customPicks ?? [];
-  const myPickIds = customPicks
-    .filter((p) => p.addedBy === playerId)
-    .map((p) => p.tmdbId);
+  const myPicks = customPicks.filter((p) => p.addedBy === playerId);
   const readyCount = room?.players.filter((p) => p.picksReady).length ?? 0;
 
   const handleJoin = async () => {
@@ -173,6 +237,19 @@ export default function RoomClient({
     setRankings([]);
     setSubmitted(false);
     await refresh();
+  };
+
+  const handlePassOnMovies = async () => {
+    if (!playerId || !code || passing) return;
+    setPassing(true);
+    try {
+      await passOnMoviesApi(code, playerId, rankings);
+    } catch {
+      // refresh shows whether the countdown started
+    } finally {
+      await refresh();
+      setPassing(false);
+    }
   };
 
   const handleVeto = async (response: "accept" | "veto") => {
@@ -373,7 +450,7 @@ export default function RoomClient({
 
           {room.tmdbEnabled && !iAmReady && (
             <MovieSearch
-              selectedIds={myPickIds}
+              selectedPicks={myPicks}
               onAdd={handleAddCustom}
               onRemove={handleRemoveCustom}
               label="Movies you want in the mix"
@@ -528,18 +605,48 @@ export default function RoomClient({
 
   if (submitted || me?.submitted) {
     const waiting = room.players.filter((p) => !p.submitted).map((p) => p.name);
+    const passActive = room.passDeadline != null;
     return (
       <CinemaShell>
-        <WaitingForOthers
-          names={waiting.length > 0 ? waiting : ["the final tally"]}
-        />
+        <div className="w-full space-y-4">
+          {passActive && (
+            <PassCountdown
+              deadline={room.passDeadline!}
+              onElapsed={refreshAfterPass}
+            />
+          )}
+          <WaitingForOthers
+            names={waiting.length > 0 ? waiting : ["the final tally"]}
+            action={
+              passActive ? null : (
+                <button
+                  type="button"
+                  onClick={handlePassOnMovies}
+                  disabled={passing}
+                  className="mx-auto block cursor-pointer text-sm text-stone-500 underline-offset-2 hover:text-stone-300 hover:underline disabled:opacity-40"
+                >
+                  {passing ? "Starting countdown…" : "None of these feel right"}
+                </button>
+              )
+            }
+          />
+        </div>
       </CinemaShell>
     );
   }
 
+  const passActive = room.passDeadline != null;
+
   return (
     <CinemaShell>
       <p className="text-center text-sm text-stone-500">Hi {playerName}</p>
+
+      {passActive && (
+        <PassCountdown
+          deadline={room.passDeadline!}
+          onElapsed={refreshAfterPass}
+        />
+      )}
 
       <MovieRanker
         movies={movies}
@@ -547,14 +654,26 @@ export default function RoomClient({
         onChange={setRankings}
         disabled={submitting}
         action={
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting || rankings.length === 0}
-            className="mx-auto block w-full max-w-lg cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
-          >
-            {submitting ? "Locking in..." : "I'm happy with this list"}
-          </button>
+          <div className="mx-auto w-full max-w-lg space-y-3">
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting || passActive || rankings.length === 0}
+              className="block w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
+            >
+              {submitting ? "Locking in..." : "I'm happy with this list"}
+            </button>
+            {!passActive && (
+              <button
+                type="button"
+                onClick={handlePassOnMovies}
+                disabled={passing || submitting}
+                className="block w-full cursor-pointer py-2 text-sm text-stone-500 hover:text-stone-300 disabled:opacity-40"
+              >
+                {passing ? "Starting countdown…" : "None of these feel right"}
+              </button>
+            )}
+          </div>
         }
       />
     </CinemaShell>

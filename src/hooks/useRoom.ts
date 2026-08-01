@@ -182,6 +182,22 @@ export async function submitRankingsApi(
   return roomAction(code, { action: "submit", playerId, rankings });
 }
 
+export async function passOnMoviesApi(
+  code: string,
+  playerId: string,
+  rankings: string[] = []
+) {
+  return roomAction(code, { action: "pass", playerId, rankings });
+}
+
+export async function syncPassFavoritesApi(
+  code: string,
+  playerId: string,
+  rankings: string[] = []
+) {
+  return roomAction(code, { action: "pass-favorites", playerId, rankings });
+}
+
 export async function newRoundApi(code: string, playerId: string) {
   return roomAction(code, { action: "reset", playerId });
 }
