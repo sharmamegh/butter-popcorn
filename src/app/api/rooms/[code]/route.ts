@@ -53,15 +53,27 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
     case "ready": {
-      const room = await setPicksReady(
+      const result = await setPicksReady(
         code,
         body.playerId,
         body.ready !== false
       );
-      if (!room) {
+      if (!result) {
         return NextResponse.json({ error: "Cannot update ready" }, { status: 400 });
       }
-      return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
+      if (result.rankingFailed) {
+        return NextResponse.json(
+          {
+            error:
+              "Couldn't build a list to rank yet. Add another movie and try again.",
+            room: toPublicRoom(result.room, isTmdbEnabled()),
+          },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({
+        room: toPublicRoom(result.room, isTmdbEnabled()),
+      });
     }
     case "submit": {
       const room = await submitRankings(code, body.playerId, body.rankings);

@@ -124,7 +124,16 @@ export async function roomAction(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("Request failed");
+  if (!res.ok) {
+    let message = "Request failed";
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // keep default
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 

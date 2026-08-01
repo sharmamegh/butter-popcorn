@@ -190,13 +190,16 @@ export async function removeCustomMovie(
 
 async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   const customIds = uniqueCustomIds(room);
+  // Customs always stay on the slate; pad with discovery so a single
+  // add (or none) still makes a rankable list.
+  const count = Math.max(customIds.length, DISCOVERY_FILL_COUNT);
   return buildSessionMovies({
     seed,
     moods: roomMoods(room),
-    count: customIds.length > 0 ? customIds.length : DISCOVERY_FILL_COUNT,
+    count,
     excludeIds: room.usedMovieIds,
     customTmdbIds: customIds,
-    fillFromDiscovery: customIds.length === 0,
+    fillFromDiscovery: true,
   });
 }
 
@@ -228,7 +231,7 @@ export async function setPicksReady(
   code: string,
   playerId: string,
   ready: boolean
-): Promise<Room | null> {
+): Promise<{ room: Room; rankingFailed?: boolean } | null> {
   const room = await getRoom(code);
   if (!room || room.status !== "picking") return null;
 
@@ -241,15 +244,16 @@ export async function setPicksReady(
   if (ready && room.players.every((p) => p.picksReady)) {
     const started = await beginRanking(room);
     if (!started) {
-      // Not enough movies; unready everyone so they can add more
-      player.picksReady = false;
+      for (const p of room.players) {
+        p.picksReady = false;
+      }
       await saveRoom(room);
-      return room;
+      return { room, rankingFailed: true };
     }
-    return started;
+    return { room: started };
   }
 
-  return room;
+  return { room };
 }
 
 export async function submitRankings(

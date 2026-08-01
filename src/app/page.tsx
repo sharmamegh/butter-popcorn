@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandMark } from "@/components/BrandMark";
 import { CinemaShell } from "@/components/CinemaShell";
 import { MoodPicker } from "@/components/MoodPicker";
 import { createRoom, savePlayer } from "@/hooks/useRoom";
@@ -17,6 +18,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("join") === "1") {
+      setShowJoin(true);
+    }
+  }, []);
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -42,18 +49,10 @@ export default function Home() {
   };
 
   return (
-    <CinemaShell>
-      <header className="text-center mb-4">
-        <p className="text-xs uppercase tracking-[0.35em] text-butter-600 mb-3">
-          Watch together
-        </p>
-        <h1
-          className="text-4xl sm:text-6xl font-bold shimmer-text mb-3"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          Butter Popcorn
-        </h1>
-        <p className="text-stone-400 text-lg max-w-lg mx-auto">
+    <CinemaShell brand={false}>
+      <header className="mb-4 text-center">
+        <BrandMark size="hero" />
+        <p className="mx-auto mt-3 max-w-lg text-lg text-stone-400">
           Stop arguing over what to watch. Find the movie everyone&apos;s
           actually happy with.
         </p>

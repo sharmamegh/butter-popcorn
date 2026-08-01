@@ -1,12 +1,14 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CinemaShell } from "@/components/CinemaShell";
 import { MovieRanker, WaitingForOthers } from "@/components/MovieRanker";
 import { MovieSearch } from "@/components/MovieSearch";
 import { RevealScreen } from "@/components/RevealScreen";
 import { RoomInvite } from "@/components/RoomInvite";
+import { RoomStatus } from "@/components/RoomStatus";
 import {
   addCustomMovieApi,
   joinRoomApi,
@@ -20,6 +22,14 @@ import {
   useRoom,
   vetoApi,
 } from "@/hooks/useRoom";
+
+function roomStatusKind(
+  error: string | null
+): "missing" | "offline" | "error" {
+  if (error === "Connection error") return "offline";
+  if (error === "Couldn't load room") return "error";
+  return "missing";
+}
 
 export default function RoomClient({
   params,
@@ -104,8 +114,13 @@ export default function RoomClient({
     try {
       await setPicksReadyApi(code, playerId, ready);
       await refresh();
-    } catch {
-      alert("Couldn't update. Add a couple of movies first, or try again.");
+    } catch (err) {
+      await refresh();
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Couldn't update. Add a couple of movies first, or try again."
+      );
     } finally {
       setReadying(false);
     }
@@ -166,7 +181,7 @@ export default function RoomClient({
   if (loading) {
     return (
       <CinemaShell>
-        <p className="text-stone-500">Loading room...</p>
+        <RoomStatus kind="loading" />
       </CinemaShell>
     );
   }
@@ -174,9 +189,13 @@ export default function RoomClient({
   if (error || !room) {
     return (
       <CinemaShell>
-        <p className="text-stone-400">
-          Room not found. Check the code and try again.
-        </p>
+        <RoomStatus
+          kind={roomStatusKind(error)}
+          code={code}
+          onRetry={() => {
+            void refresh();
+          }}
+        />
       </CinemaShell>
     );
   }
@@ -201,6 +220,12 @@ export default function RoomClient({
           >
             {joining ? "Joining..." : "Join 🍿"}
           </button>
+          <Link
+            href="/?join=1"
+            className="block py-2 text-sm text-stone-500 transition-colors hover:text-butter-400"
+          >
+            Wrong code? Try another
+          </Link>
         </div>
       </CinemaShell>
     );
@@ -271,6 +296,9 @@ export default function RoomClient({
             </h2>
             <p className="mt-1 text-sm text-stone-500">
               {readyCount}/{room.players.length} ready
+              {customPicks.length > 0
+                ? ` · ${customPicks.length} in the mix`
+                : " · suggestions fill in if you skip adding"}
             </p>
           </div>
 
