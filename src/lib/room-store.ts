@@ -1,11 +1,12 @@
 import { DISCOVERY_FILL_COUNT, MAX_PLAYERS, MIN_PLAYERS } from "@/lib/constants";
+import { getSessionMovies } from "@/data/movies";
 import { calculateMatch, completeRankings } from "@/lib/match";
 import { getStorage } from "@/lib/room-storage";
 import type { CustomPick, Room, RoomPlayer } from "@/lib/room-types";
 import { roomCustomPicks, roomMoods } from "@/lib/room-types";
 import { buildSessionMovies, isTmdbEnabled } from "@/lib/tmdb";
 import type { Mood } from "@/types/movie";
-import { normalizeMoods } from "@/types/movie";
+import { movieIdFromTmdb, normalizeMoods } from "@/types/movie";
 import type { Movie } from "@/types/movie";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -16,6 +17,42 @@ function moviesToRecord(movies: Movie[]): Record<string, Movie> {
 
 function uniqueCustomIds(room: Room): number[] {
   return [...new Set(roomCustomPicks(room).map((p) => p.tmdbId))];
+}
+
+function movieFromCustomPick(pick: CustomPick): Movie {
+  return {
+    id: movieIdFromTmdb(pick.tmdbId),
+    tmdbId: pick.tmdbId,
+    title: pick.title,
+    year: pick.year || 0,
+    tagline: "",
+    description: "Added by someone in the room.",
+    themes: [],
+    runtime: "",
+    emoji: "🎬",
+    genre: "Movie",
+    posterUrl: pick.posterUrl,
+  };
+}
+
+/** Keep every custom pick on the slate even if TMDB detail fetch fails. */
+function ensureCustomsOnSlate(room: Room, movies: Movie[]): Movie[] {
+  const have = new Set(movies.map((m) => m.id));
+  const extras: Movie[] = [];
+  for (const pick of roomCustomPicks(room)) {
+    const id = movieIdFromTmdb(pick.tmdbId);
+    if (!have.has(id)) {
+      extras.push(movieFromCustomPick(pick));
+      have.add(id);
+    }
+  }
+  return extras.length ? [...extras, ...movies] : movies;
+}
+
+function clearReadyFlags(room: Room) {
+  for (const player of room.players) {
+    player.picksReady = false;
+  }
 }
 
 export function generateCode(): string {
@@ -87,18 +124,43 @@ export async function saveRoom(room: Room): Promise<void> {
   await getStorage().set(room);
 }
 
+/**
+ * Join a lobby, or reattach if you're already in the room (any phase).
+ * Reattach by playerId or matching name so lost tabs / devices can continue.
+ */
 export async function joinRoom(
   code: string,
-  name: string
+  name: string,
+  opts: { playerId?: string } = {}
 ): Promise<{ room: Room; playerId: string } | null> {
   const room = await getRoom(code);
-  if (!room || room.status !== "lobby") return null;
+  if (!room) return null;
+
+  const trimmed = name.trim() || "Guest";
+
+  if (opts.playerId) {
+    const existing = room.players.find((p) => p.id === opts.playerId);
+    if (existing) {
+      if (trimmed && existing.name !== trimmed) existing.name = trimmed;
+      await saveRoom(room);
+      return { room, playerId: existing.id };
+    }
+  }
+
+  const byName = room.players.find(
+    (p) => p.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  if (byName) {
+    return { room, playerId: byName.id };
+  }
+
+  if (room.status !== "lobby") return null;
   if (room.players.length >= room.expectedPlayers) return null;
 
   const playerId = generatePlayerId();
   const player: RoomPlayer = {
     id: playerId,
-    name: name.trim() || `Guest ${room.players.length + 1}`,
+    name: trimmed || `Guest ${room.players.length + 1}`,
     isHost: false,
     picksReady: false,
     submitted: false,
@@ -158,6 +220,8 @@ export async function addCustomMovie(
   };
 
   room.customPicks.push(pick);
+  // Mix changed — anyone already ready should reconfirm.
+  clearReadyFlags(room);
   await saveRoom(room);
   return room;
 }
@@ -181,26 +245,58 @@ export async function removeCustomMovie(
   if (!isHost && target.addedBy !== playerId) return null;
 
   room.customPicks = picks.filter((p) => p.tmdbId !== tmdbId);
-
-  // Someone changed the mix: clear ready for people who weren't the remover? 
-  // Simpler: only the remover was not ready already. Keep others' ready.
+  clearReadyFlags(room);
   await saveRoom(room);
   return room;
 }
 
 async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   const customIds = uniqueCustomIds(room);
-  // Customs always stay on the slate; pad with discovery so a single
-  // add (or none) still makes a rankable list.
-  const count = Math.max(customIds.length, DISCOVERY_FILL_COUNT);
-  return buildSessionMovies({
-    seed,
-    moods: roomMoods(room),
-    count,
-    excludeIds: room.usedMovieIds,
-    customTmdbIds: customIds,
-    fillFromDiscovery: true,
-  });
+  const count = Math.max(customIds.length, DISCOVERY_FILL_COUNT, 2);
+
+  let movies: Movie[] = [];
+  try {
+    movies = await buildSessionMovies({
+      seed,
+      moods: roomMoods(room),
+      count,
+      excludeIds: room.usedMovieIds,
+      customTmdbIds: customIds,
+      fillFromDiscovery: true,
+    });
+  } catch (err) {
+    console.error("[butter-popcorn] buildSessionMovies failed", err);
+  }
+
+  movies = ensureCustomsOnSlate(room, movies);
+
+  if (movies.length < 2) {
+    try {
+      movies = await buildSessionMovies({
+        seed: `${seed}-recycle`,
+        moods: roomMoods(room),
+        count,
+        excludeIds: [],
+        customTmdbIds: customIds,
+        fillFromDiscovery: true,
+      });
+      movies = ensureCustomsOnSlate(room, movies);
+    } catch (err) {
+      console.error("[butter-popcorn] recycled build failed", err);
+    }
+  }
+
+  if (movies.length < 2) {
+    const staticPad = getSessionMovies(`${seed}-static`, count);
+    const have = new Set(movies.map((m) => m.id));
+    movies = [
+      ...movies,
+      ...staticPad.filter((m) => !have.has(m.id)),
+    ].slice(0, Math.max(count, 2));
+    movies = ensureCustomsOnSlate(room, movies);
+  }
+
+  return movies;
 }
 
 async function beginRanking(room: Room): Promise<Room | null> {
@@ -231,7 +327,7 @@ export async function setPicksReady(
   code: string,
   playerId: string,
   ready: boolean
-): Promise<{ room: Room; rankingFailed?: boolean } | null> {
+): Promise<Room | null> {
   const room = await getRoom(code);
   if (!room || room.status !== "picking") return null;
 
@@ -239,21 +335,23 @@ export async function setPicksReady(
   if (!player) return null;
 
   player.picksReady = ready;
-  await saveRoom(room);
 
-  if (ready && room.players.every((p) => p.picksReady)) {
-    const started = await beginRanking(room);
-    if (!started) {
-      for (const p of room.players) {
-        p.picksReady = false;
-      }
-      await saveRoom(room);
-      return { room, rankingFailed: true };
-    }
-    return { room: started };
+  if (!(ready && room.players.every((p) => p.picksReady))) {
+    await saveRoom(room);
+    return room;
   }
 
-  return { room };
+  // Everyone ready — transition. Never leave the room stuck with all-ready.
+  try {
+    const started = await beginRanking(room);
+    if (started) return started;
+  } catch (err) {
+    console.error("[butter-popcorn] beginRanking threw", err);
+  }
+
+  clearReadyFlags(room);
+  await saveRoom(room);
+  return room;
 }
 
 export async function submitRankings(
@@ -280,6 +378,14 @@ export async function submitRankings(
       room.status = "revealed";
       for (const p of room.players) {
         p.vetoResponse = "pending";
+      }
+    } else {
+      // Should be unreachable after match hardening — still unstick if needed.
+      clearReadyFlags(room);
+      room.status = "picking";
+      for (const p of room.players) {
+        p.submitted = false;
+        p.rankings = null;
       }
     }
   }
@@ -331,6 +437,10 @@ export async function submitVetoResponse(
         for (const p of room.players) {
           p.vetoResponse = "pending";
         }
+      } else {
+        // No alternate winner — start a fresh picking round instead of stalling.
+        await newRound(code, room.hostId);
+        return getRoom(code);
       }
     }
   }

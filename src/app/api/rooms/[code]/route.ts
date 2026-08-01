@@ -36,7 +36,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   switch (action) {
     case "join": {
-      const result = await joinRoom(code, body.name ?? "Guest");
+      const result = await joinRoom(code, body.name ?? "Guest", {
+        playerId: typeof body.playerId === "string" ? body.playerId : undefined,
+      });
       if (!result) {
         return NextResponse.json({ error: "Cannot join room" }, { status: 400 });
       }
@@ -53,26 +55,16 @@ export async function POST(request: Request, context: RouteContext) {
       return NextResponse.json({ room: toPublicRoom(room, isTmdbEnabled()) });
     }
     case "ready": {
-      const result = await setPicksReady(
+      const room = await setPicksReady(
         code,
         body.playerId,
         body.ready !== false
       );
-      if (!result) {
+      if (!room) {
         return NextResponse.json({ error: "Cannot update ready" }, { status: 400 });
       }
-      if (result.rankingFailed) {
-        return NextResponse.json(
-          {
-            error:
-              "Couldn't build a list to rank yet. Add another movie and try again.",
-            room: toPublicRoom(result.room, isTmdbEnabled()),
-          },
-          { status: 409 }
-        );
-      }
       return NextResponse.json({
-        room: toPublicRoom(result.room, isTmdbEnabled()),
+        room: toPublicRoom(room, isTmdbEnabled()),
       });
     }
     case "submit": {

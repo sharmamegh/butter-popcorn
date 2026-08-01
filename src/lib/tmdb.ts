@@ -270,7 +270,8 @@ export async function buildSessionMovies(options: {
   const customMovies: Movie[] = [];
   for (const id of customIds) {
     const movie = await fetchTmdbMovieDetails(id);
-    if (movie && !exclude.has(movie.id)) customMovies.push(movie);
+    // Customs always stay on the slate, even if they appeared in an earlier round.
+    if (movie) customMovies.push(movie);
   }
 
   if (!fillFromDiscovery) {
@@ -285,10 +286,14 @@ export async function buildSessionMovies(options: {
   const startPage = (h % 40) + 1;
   const candidates: TmdbMovie[] = [];
 
-  for (let i = 0; i < 3; i++) {
-    const page = startPage + i;
-    const results = await discoverPage(normalizedMoods, page);
-    candidates.push(...results);
+  try {
+    for (let i = 0; i < 3; i++) {
+      const page = startPage + i;
+      const results = await discoverPage(normalizedMoods, page);
+      candidates.push(...results);
+    }
+  } catch {
+    // Fall through — pad from static catalog below if needed.
   }
 
   const customIdSet = new Set(customIds);
@@ -303,16 +308,52 @@ export async function buildSessionMovies(options: {
   }
 
   const shuffled = seededShuffle(unique, seed);
-  const slots = Math.max(0, count - customMovies.length);
-  const pickedRaw = shuffled.slice(0, slots);
+  let slots = Math.max(0, count - customMovies.length);
+  let pickedRaw = shuffled.slice(0, slots);
+
+  // Recycle previously-seen titles when the unused pool runs dry.
+  if (pickedRaw.length < slots) {
+    const recycled: TmdbMovie[] = [];
+    const recycledSeen = new Set(pickedRaw.map((c) => movieIdFromTmdb(c.id)));
+    for (const c of candidates) {
+      const id = movieIdFromTmdb(c.id);
+      if (customIdSet.has(c.id) || recycledSeen.has(id)) continue;
+      recycledSeen.add(id);
+      recycled.push(c);
+    }
+    pickedRaw = [
+      ...pickedRaw,
+      ...seededShuffle(recycled, `${seed}-recycle`).slice(
+        0,
+        slots - pickedRaw.length
+      ),
+    ];
+  }
+
   const picked = await Promise.all(
     pickedRaw.map(async (item) => {
-      const detailed = await fetchTmdbMovieDetails(item.id);
-      return detailed ?? tmdbToMovie(item);
+      try {
+        const detailed = await fetchTmdbMovieDetails(item.id);
+        return detailed ?? tmdbToMovie(item);
+      } catch {
+        return tmdbToMovie(item);
+      }
     })
   );
 
-  return [...customMovies, ...picked];
+  let slate = [...customMovies, ...picked];
+
+  // Last resort: pad from the built-in catalog so ranking can always start.
+  if (slate.length < Math.min(count, 2)) {
+    const need = Math.max(2, count) - slate.length;
+    const have = new Set(slate.map((m) => m.id));
+    const extras = getStaticSessionMovies(`${seed}-static`, need + have.size)
+      .filter((m) => !have.has(m.id))
+      .slice(0, need);
+    slate = [...slate, ...extras];
+  }
+
+  return slate;
 }
 
 export async function resolveMovies(movieIds: string[]): Promise<Movie[]> {

@@ -4,18 +4,35 @@ import { useCallback, useEffect, useState } from "react";
 import type { PublicRoom } from "@/lib/room-types";
 
 const PLAYER_KEY = "butter-popcorn-player";
+const playerKey = (roomCode: string) =>
+  `${PLAYER_KEY}:${roomCode.toUpperCase()}`;
 
 export function savePlayer(roomCode: string, playerId: string, name: string) {
-  const data = { roomCode, playerId, name };
-  localStorage.setItem(PLAYER_KEY, JSON.stringify(data));
+  const data = { roomCode: roomCode.toUpperCase(), playerId, name };
+  try {
+    localStorage.setItem(playerKey(roomCode), JSON.stringify(data));
+    // Legacy single-key write so older tabs still find something briefly.
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(data));
+  } catch {
+    // private mode / quota — continue without persistence
+  }
 }
 
 export function loadPlayer(roomCode: string): { playerId: string; name: string } | null {
   try {
+    const scoped = localStorage.getItem(playerKey(roomCode));
+    if (scoped) {
+      const data = JSON.parse(scoped);
+      if (data.roomCode?.toUpperCase() === roomCode.toUpperCase()) {
+        return { playerId: data.playerId, name: data.name };
+      }
+    }
+    // Migrate from the old global key if it matches this room.
     const raw = localStorage.getItem(PLAYER_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (data.roomCode !== roomCode) return null;
+    if (data.roomCode?.toUpperCase() !== roomCode.toUpperCase()) return null;
+    savePlayer(roomCode, data.playerId, data.name);
     return { playerId: data.playerId, name: data.name };
   } catch {
     return null;
@@ -137,8 +154,12 @@ export async function roomAction(
   return res.json();
 }
 
-export async function joinRoomApi(code: string, name: string) {
-  return roomAction(code, { action: "join", name });
+export async function joinRoomApi(
+  code: string,
+  name: string,
+  playerId?: string
+) {
+  return roomAction(code, { action: "join", name, playerId });
 }
 
 export async function startRoomApi(code: string, playerId: string) {

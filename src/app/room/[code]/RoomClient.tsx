@@ -52,6 +52,8 @@ export default function RoomClient({
   const [submitting, setSubmitting] = useState(false);
   const [readying, setReadying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [autoJoined, setAutoJoined] = useState(false);
 
   useEffect(() => {
     if (!code) return;
@@ -82,18 +84,48 @@ export default function RoomClient({
   const handleJoin = async () => {
     if (!joinInput.trim() || !code) return;
     setJoining(true);
+    setJoinError(null);
     try {
-      const data = await joinRoomApi(code, joinInput.trim());
+      const saved = loadPlayer(code);
+      const data = await joinRoomApi(
+        code,
+        joinInput.trim(),
+        saved?.playerId
+      );
       savePlayer(code, data.playerId, joinInput.trim());
       setPlayerId(data.playerId);
       setPlayerName(joinInput.trim());
       await refresh();
     } catch {
-      alert("Couldn't join. Room may be full or already started.");
+      setJoinError(
+        "Couldn't get you in. If the night already started, use the same name you joined with."
+      );
     } finally {
       setJoining(false);
     }
   };
+
+  // Deep link ?name=… reattaches or joins without an extra tap when possible.
+  useEffect(() => {
+    if (!room || autoJoined || playerId || !joinName?.trim()) return;
+    setAutoJoined(true);
+    setJoinInput(joinName);
+    void (async () => {
+      setJoining(true);
+      try {
+        const saved = loadPlayer(code);
+        const data = await joinRoomApi(code, joinName.trim(), saved?.playerId);
+        savePlayer(code, data.playerId, joinName.trim());
+        setPlayerId(data.playerId);
+        setPlayerName(joinName.trim());
+        await refresh();
+      } catch {
+        // Fall through to the manual join form.
+      } finally {
+        setJoining(false);
+      }
+    })();
+  }, [room, autoJoined, playerId, joinName, code, refresh]);
 
   const handleStart = async () => {
     if (!playerId || !code) return;
@@ -102,7 +134,7 @@ export default function RoomClient({
       await startRoomApi(code, playerId);
       await refresh();
     } catch {
-      alert("Need at least two people to start.");
+      await refresh();
     } finally {
       setStarting(false);
     }
@@ -113,15 +145,10 @@ export default function RoomClient({
     setReadying(true);
     try {
       await setPicksReadyApi(code, playerId, ready);
-      await refresh();
-    } catch (err) {
-      await refresh();
-      alert(
-        err instanceof Error
-          ? err.message
-          : "Couldn't update. Add a couple of movies first, or try again."
-      );
+    } catch {
+      // Server recovers silently; refresh shows the real state.
     } finally {
+      await refresh();
       setReadying(false);
     }
   };
@@ -132,10 +159,10 @@ export default function RoomClient({
     try {
       await submitRankingsApi(code, playerId, rankings);
       setSubmitted(true);
-      await refresh();
     } catch {
-      alert("Couldn't lock in your list. Try again.");
+      // refresh below
     } finally {
+      await refresh();
       setSubmitting(false);
     }
   };
@@ -161,13 +188,21 @@ export default function RoomClient({
     posterUrl: string | null;
   }) => {
     if (!playerId || !code) return;
-    await addCustomMovieApi(code, playerId, movie.tmdbId, movie);
+    try {
+      await addCustomMovieApi(code, playerId, movie.tmdbId, movie);
+    } catch {
+      // refresh shows whether it landed
+    }
     await refresh();
   };
 
   const handleRemoveCustom = async (tmdbId: number) => {
     if (!playerId || !code) return;
-    await removeCustomMovieApi(code, playerId, tmdbId);
+    try {
+      await removeCustomMovieApi(code, playerId, tmdbId);
+    } catch {
+      // refresh shows whether it landed
+    }
     await refresh();
   };
 
@@ -220,6 +255,11 @@ export default function RoomClient({
           >
             {joining ? "Joining..." : "Join 🍿"}
           </button>
+          {joinError && (
+            <p className="text-sm text-stone-400" role="alert">
+              {joinError}
+            </p>
+          )}
           <Link
             href="/?join=1"
             className="block py-2 text-sm text-stone-500 transition-colors hover:text-butter-400"
@@ -270,7 +310,11 @@ export default function RoomClient({
             </button>
           ) : (
             <p className="text-center text-stone-500">
-              Waiting for everyone to join...
+              {room.players.length >= 2
+                ? `Waiting for ${
+                    room.players.find((p) => p.isHost)?.name ?? "the host"
+                  } to start…`
+                : "Waiting for everyone to join…"}
             </p>
           )}
         </div>
@@ -425,8 +469,47 @@ export default function RoomClient({
   }
 
   if (room.status === "revealed" && room.result) {
-    const winner = room.movies.find((m) => m.id === room.result!.winnerId);
-    if (!winner || !playerId || !me) return null;
+    const winner =
+      room.movies.find((m) => m.id === room.result!.winnerId) ?? {
+        id: room.result.winnerId,
+        tmdbId: null,
+        title: "Tonight’s pick",
+        year: 0,
+        tagline: "",
+        description: "The group landed on this one.",
+        themes: [],
+        runtime: "",
+        emoji: "🍿",
+        genre: "Movie",
+        posterUrl: null,
+      };
+
+    if (!playerId || !me) {
+      return (
+        <CinemaShell>
+          <div className="w-full max-w-md space-y-4 text-center">
+            <p className="text-stone-300">
+              Rejoin with the same name to see the reveal.
+            </p>
+            <input
+              type="text"
+              value={joinInput}
+              onChange={(e) => setJoinInput(e.target.value)}
+              placeholder="Your name"
+              className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-lg text-stone-100 focus:border-butter-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleJoin}
+              disabled={joining || !joinInput.trim()}
+              className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer"
+            >
+              {joining ? "Joining..." : "I’m in"}
+            </button>
+          </div>
+        </CinemaShell>
+      );
+    }
 
     return (
       <CinemaShell>
@@ -447,7 +530,9 @@ export default function RoomClient({
     const waiting = room.players.filter((p) => !p.submitted).map((p) => p.name);
     return (
       <CinemaShell>
-        <WaitingForOthers names={waiting} />
+        <WaitingForOthers
+          names={waiting.length > 0 ? waiting : ["the final tally"]}
+        />
       </CinemaShell>
     );
   }

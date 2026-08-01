@@ -58,23 +58,32 @@ export function calculateMatch(
       return (worstRank.get(a.movieId) ?? 99) - (worstRank.get(b.movieId) ?? 99);
     });
 
-  if (sorted.length === 0 || sorted[0].points === 0) return null;
-
-  const winnerId = sorted[0].movieId;
+  // Always pick something when the slate has eligible titles — never stall reveal.
+  const winnerId = sorted[0]?.movieId ?? eligibleIds[0];
+  const scoresOut =
+    sorted.length > 0
+      ? sorted
+      : eligibleIds.map((movieId, i) => ({
+          movieId,
+          points: eligibleIds.length - i,
+        }));
 
   const breakdown: MatchResult["breakdown"] = room.players
     .filter((p) => p.rankings)
     .map((player) => ({
       playerId: player.id,
       name: player.name,
-      rank: player.rankings!.indexOf(winnerId) + 1,
+      rank: Math.max(1, player.rankings!.indexOf(winnerId) + 1),
     }));
 
-  const insight = buildInsight(room, winnerId);
+  const insight =
+    sorted[0] && sorted[0].points > 0
+      ? buildInsight(room, winnerId)
+      : "Closest match we could find — dig in!";
 
   return {
     winnerId,
-    scores: sorted,
+    scores: scoresOut,
     breakdown,
     insight,
   };
