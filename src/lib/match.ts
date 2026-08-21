@@ -19,6 +19,23 @@ export function completeRankings(
   return [...rankings, ...rest];
 }
 
+/**
+ * Movies the player actually favored. Auto-filled slate order is not a vote —
+ * older rooms without pickedIds still score the stored full ranking.
+ */
+function favoriteOrder(player: {
+  pickedIds?: string[] | null;
+  rankings?: string[] | null;
+}): string[] | null {
+  if (player.pickedIds && player.pickedIds.length > 0) {
+    return player.pickedIds;
+  }
+  if (player.rankings && player.rankings.length > 0) {
+    return player.rankings;
+  }
+  return null;
+}
+
 export function calculateMatch(
   room: Room,
   excludeMovieIds: string[] = []
@@ -39,8 +56,9 @@ export function calculateMatch(
   }
 
   for (const player of room.players) {
-    if (!player.rankings) continue;
-    player.rankings.forEach((movieId, index) => {
+    const order = favoriteOrder(player);
+    if (!order) continue;
+    order.forEach((movieId, index) => {
       if (!eligibleIds.includes(movieId)) return;
       const rank = index + 1;
       const points = n - index;
@@ -69,12 +87,16 @@ export function calculateMatch(
         }));
 
   const breakdown: MatchResult["breakdown"] = room.players
-    .filter((p) => p.rankings)
-    .map((player) => ({
-      playerId: player.id,
-      name: player.name,
-      rank: Math.max(1, player.rankings!.indexOf(winnerId) + 1),
-    }));
+    .filter((p) => favoriteOrder(p))
+    .map((player) => {
+      const order = favoriteOrder(player)!;
+      const idx = order.indexOf(winnerId);
+      return {
+        playerId: player.id,
+        name: player.name,
+        rank: idx >= 0 ? idx + 1 : order.length + 1,
+      };
+    });
 
   const insight =
     sorted[0] && sorted[0].points > 0
@@ -90,31 +112,37 @@ export function calculateMatch(
 }
 
 function buildInsight(room: Room, winnerId: string): string {
-  const ranks: number[] = [];
+  const voters = room.players.filter((p) => favoriteOrder(p));
+  if (voters.length === 0) return "The algorithm has spoken.";
 
-  for (const player of room.players) {
-    if (!player.rankings) continue;
-    const idx = player.rankings.indexOf(winnerId);
-    if (idx >= 0) ranks.push(idx + 1);
+  const ranks = voters.map((player) => {
+    const idx = favoriteOrder(player)!.indexOf(winnerId);
+    return idx >= 0 ? idx + 1 : null;
+  });
+
+  const everyonePickedIt = ranks.every((r) => r != null);
+  const numeric = ranks.filter((r): r is number => r != null);
+
+  if (numeric.length === 0) return "The algorithm has spoken.";
+
+  if (everyonePickedIt && numeric.every((r) => r === 1)) {
+    return "Unanimous #1! Everyone picked this first.";
   }
-
-  if (ranks.length === 0) return "The algorithm has spoken.";
-
-  const allTop3 = ranks.every((r) => r <= 3);
-  const bothNumberOne = ranks.every((r) => r === 1);
-
-  if (bothNumberOne) return "Unanimous #1! Everyone picked this first.";
-  if (allTop3) return "Strong group overlap. This was in everyone's top 3.";
-  if (ranks.length === 2) {
-    const [a, b] = ranks;
+  if (everyonePickedIt && numeric.every((r) => r <= 3)) {
+    return "Strong group overlap. This was in everyone's top 3.";
+  }
+  if (everyonePickedIt && numeric.length === 2) {
+    const [a, b] = numeric;
     if (a <= 2 && b <= 2) return "Both ranked this near the top. Clear favorite.";
     if (Math.max(a, b) <= 4) return "Solid compromise. Not everyone's #1, but nobody ranked it last.";
     return "Best overlap on this list. Worth a shot!";
   }
 
-  const avgRank = ranks.reduce((a, b) => a + b, 0) / ranks.length;
-  if (avgRank <= 3) return "Strong group consensus. Ranked highly across the board.";
-  if (avgRank <= 5) return "Good group fit. A pick most people can get behind.";
+  if (everyonePickedIt) {
+    const avgRank = numeric.reduce((sum, rank) => sum + rank, 0) / numeric.length;
+    if (avgRank <= 3) return "Strong group consensus. Ranked highly across the board.";
+    if (avgRank <= 5) return "Good group fit. A pick most people can get behind.";
+  }
 
   return "Highest combined score across the group!";
 }
