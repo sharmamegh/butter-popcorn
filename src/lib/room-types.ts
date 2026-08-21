@@ -14,9 +14,9 @@ export type RoomPlayer = {
   submitted: boolean;
   /** Moods this player wants suggestions to lean toward. */
   moods: Mood[];
-  /** Full ordered list used for matching (favorites + auto-filled rest). */
+  /** Full ordered list (favorites + auto-filled rest). Scoring uses pickedIds when set. */
   rankings: string[] | null;
-  /** Titles this player intentionally favored before auto-fill. */
+  /** Titles this player intentionally favored. Matching scores these, not auto-fill. */
   pickedIds: string[] | null;
   vetoUsed: boolean;
   vetoResponse: VetoResponse;
