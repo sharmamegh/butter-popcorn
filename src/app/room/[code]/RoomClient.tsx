@@ -203,6 +203,14 @@ export default function RoomClient({
   const isHost = room?.hostId === playerId;
   const me = room?.players.find((p) => p.id === playerId);
   const movies = room?.movies ?? [];
+
+  // Poll is the source of truth. A sticky local "submitted" flag would hide
+  // the ranker after a lost write and leave the group waiting forever.
+  useEffect(() => {
+    if (!me || room?.status !== "ranking" || submitting) return;
+    setSubmitted(me.submitted);
+  }, [me, room?.status, submitting]);
+
   const customPicks = room?.customPicks ?? [];
   const myPicks = customPicks.filter((p) => p.addedBy === playerId);
   const readyCount = room?.players.filter((p) => p.picksReady).length ?? 0;
