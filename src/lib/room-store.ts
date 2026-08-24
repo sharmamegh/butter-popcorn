@@ -467,6 +467,7 @@ export async function setPicksReady(
   ready: boolean,
   moods?: Mood[]
 ): Promise<Room | null> {
+  let startingSlate = false;
   const prepared = await mutateRoom(code, async (room) => {
     if (room.status !== "picking") return null;
 
@@ -479,12 +480,19 @@ export async function setPicksReady(
 
     player.picksReady = ready;
     room.moods = aggregatePlayerMoods(room.players);
-    await saveRoom(room);
+
+    // Don't persist "everyone is ready" until the slate is applied.
+    // Saving first left rooms stuck in picking after a timeout/crash mid-TMDB:
+    // every client showed "waiting on the others" and nobody re-triggered the build.
+    startingSlate = Boolean(ready && room.players.every((p) => p.picksReady));
+    if (!startingSlate) {
+      await saveRoom(room);
+    }
     return room;
   });
 
   if (!prepared) return null;
-  if (!(ready && prepared.players.every((p) => p.picksReady))) {
+  if (!startingSlate) {
     return prepared;
   }
 
@@ -497,20 +505,40 @@ export async function setPicksReady(
     console.error("[butter-popcorn] beginRanking threw", err);
   }
 
-  return mutateRoom(code, async (room) => {
-    if (room.status !== "picking") return room;
-    if (!room.players.every((p) => p.picksReady)) return room;
+  try {
+    return await mutateRoom(code, async (room) => {
+      if (room.status !== "picking") return room;
 
-    if (movies.length < 2) {
-      clearReadyFlags(room);
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) return room;
+      if (moods !== undefined) {
+        player.moods = normalizeMoods(moods);
+      }
+      player.picksReady = true;
+      room.moods = aggregatePlayerMoods(room.players);
+
+      if (!room.players.every((p) => p.picksReady)) {
+        await saveRoom(room);
+        return room;
+      }
+
+      // Mix may have changed while TMDB was in flight — keep current customs.
+      const slate = ensureCustomsOnSlate(room, movies);
+
+      if (slate.length < 2) {
+        clearReadyFlags(room);
+        await saveRoom(room);
+        return room;
+      }
+
+      applyBeginRanking(room, seed, slate);
       await saveRoom(room);
       return room;
-    }
-
-    applyBeginRanking(room, seed, movies);
-    await saveRoom(room);
-    return room;
-  });
+    });
+  } catch (err) {
+    console.error("[butter-popcorn] apply ranking failed", err);
+    return getRoom(code);
+  }
 }
 
 export async function submitRankings(
