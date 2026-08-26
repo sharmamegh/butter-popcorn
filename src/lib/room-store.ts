@@ -232,9 +232,15 @@ async function settlePassIfDueUnlocked(room: Room): Promise<Room> {
   return room;
 }
 
+function playersWithName(room: Room, name: string): RoomPlayer[] {
+  const needle = name.toLowerCase();
+  return room.players.filter((p) => p.name.toLowerCase() === needle);
+}
+
 /**
  * Join a lobby, or reattach if you're already in the room (any phase).
- * Reattach by playerId or matching name so lost tabs / devices can continue.
+ * Reattach by playerId always. Same-name reattach is only for a unique
+ * match after the lobby — two people named Alex must not share a slot.
  */
 export async function joinRoom(
   code: string,
@@ -255,15 +261,17 @@ export async function joinRoom(
       }
     }
 
-    const byName = current.players.find(
-      (p) => p.name.toLowerCase() === trimmed.toLowerCase()
-    );
-    if (byName) {
-      playerId = byName.id;
-      return current;
+    // After the night starts, a lost tab without localStorage can rejoin by
+    // name only when that name uniquely identifies one player.
+    if (current.status !== "lobby") {
+      const matches = playersWithName(current, trimmed);
+      if (matches.length === 1) {
+        playerId = matches[0].id;
+        return current;
+      }
+      return null;
     }
 
-    if (current.status !== "lobby") return null;
     if (current.players.length >= current.expectedPlayers) return null;
 
     playerId = generatePlayerId();

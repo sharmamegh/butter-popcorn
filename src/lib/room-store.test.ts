@@ -41,6 +41,75 @@ describe("ExclusiveLock", () => {
   });
 });
 
+describe("joinRoom identities", () => {
+  beforeEach(() => {
+    useTempFileStorage();
+  });
+
+  it("gives two people with the same name distinct player ids in the lobby", async () => {
+    const created = await createRoom("Alex", 3);
+    const second = await joinRoom(created.code, "Alex");
+    const third = await joinRoom(created.code, "alex");
+
+    expect(second).not.toBeNull();
+    expect(third).not.toBeNull();
+    expect(second!.playerId).not.toBe(created.hostId);
+    expect(third!.playerId).not.toBe(created.hostId);
+    expect(third!.playerId).not.toBe(second!.playerId);
+
+    const room = await getRoom(created.code);
+    expect(room?.players).toHaveLength(3);
+    expect(new Set(room!.players.map((p) => p.id)).size).toBe(3);
+  });
+
+  it("reattaches a lost tab by playerId even when names collide", async () => {
+    const created = await createRoom("Alex", 3);
+    const second = await joinRoom(created.code, "Alex");
+    expect(second).not.toBeNull();
+
+    const again = await joinRoom(created.code, "Alex", {
+      playerId: second!.playerId,
+    });
+    expect(again?.playerId).toBe(second!.playerId);
+
+    const room = await getRoom(created.code);
+    expect(room?.players).toHaveLength(2);
+  });
+
+  it("reattaches a unique name after the lobby so a lost tab can continue", async () => {
+    const created = await createRoom("Alex", 3);
+    const guest = await joinRoom(created.code, "Sam");
+    expect(guest).not.toBeNull();
+
+    const picking = await startPicking(created.code, created.hostId);
+    expect(picking?.status).toBe("picking");
+
+    const recovered = await joinRoom(created.code, "alex");
+    expect(recovered?.playerId).toBe(created.hostId);
+  });
+
+  it("does not steal a slot when two players already share a name", async () => {
+    const created = await createRoom("Alex", 3);
+    const second = await joinRoom(created.code, "Alex");
+    expect(second).not.toBeNull();
+
+    const picking = await startPicking(created.code, created.hostId);
+    expect(picking?.status).toBe("picking");
+
+    const ambiguous = await joinRoom(created.code, "Alex");
+    expect(ambiguous).toBeNull();
+
+    const byId = await joinRoom(created.code, "Alex", {
+      playerId: second!.playerId,
+    });
+    expect(byId?.playerId).toBe(second!.playerId);
+
+    const room = await getRoom(created.code);
+    expect(room?.players).toHaveLength(2);
+    expect(new Set(room!.players.map((p) => p.id)).size).toBe(2);
+  });
+});
+
 describe("concurrent room updates", () => {
   beforeEach(() => {
     useTempFileStorage();
