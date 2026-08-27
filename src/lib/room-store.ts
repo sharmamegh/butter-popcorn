@@ -567,6 +567,15 @@ export async function submitRankings(
     player.rankings = completed;
     player.submitted = true;
 
+    // A "none of these" countdown means the group is abandoning this slate.
+    // Don't let a stale lock-in (client hasn't polled the deadline yet)
+    // reveal a winner from the slate they're trying to toss.
+    if (room.passDeadline != null) {
+      rememberPassFavorites(room, playerId, rankings);
+      await saveRoom(room);
+      return room;
+    }
+
     if (room.players.every((p) => p.submitted)) {
       const result = calculateMatch(room);
       if (result) {
