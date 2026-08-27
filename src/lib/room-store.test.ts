@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExclusiveLock } from "./room-lock";
 import {
   createFileStorage,
@@ -12,6 +12,7 @@ import {
   createRoom,
   getRoom,
   joinRoom,
+  requestPass,
   setPicksReady,
   startPicking,
   submitRankings,
@@ -168,5 +169,75 @@ describe("concurrent room updates", () => {
     const room = await getRoom(created.code);
     const ids = room?.customPicks.map((p) => p.tmdbId).sort((a, b) => a - b);
     expect(ids).toEqual([550, 680]);
+  });
+});
+
+describe("pass countdown vs lock-in", () => {
+  beforeEach(() => {
+    useTempFileStorage();
+  });
+
+  async function rankingRoom() {
+    const created = await createRoom("Host", 2);
+    const joined = await joinRoom(created.code, "Guest");
+    expect(joined).not.toBeNull();
+    const guestId = joined!.playerId;
+
+    await startPicking(created.code, created.hostId);
+    await setPicksReady(created.code, created.hostId, true);
+    const ranking = await setPicksReady(created.code, guestId, true);
+    expect(ranking?.status).toBe("ranking");
+    expect(ranking!.movieIds.length).toBeGreaterThanOrEqual(2);
+
+    return {
+      code: created.code,
+      hostId: created.hostId,
+      guestId,
+      movieIds: ranking!.movieIds,
+    };
+  }
+
+  it("does not reveal a winner when the last player locks in during a pass countdown", async () => {
+    const { code, hostId, guestId, movieIds } = await rankingRoom();
+    const [first, second] = movieIds;
+
+    await submitRankings(code, hostId, [first]);
+    const passing = await requestPass(code, hostId, [first]);
+    expect(passing?.status).toBe("ranking");
+    expect(passing?.passDeadline).not.toBeNull();
+
+    const afterGuest = await submitRankings(code, guestId, [second]);
+    expect(afterGuest?.status).toBe("ranking");
+    expect(afterGuest?.result).toBeNull();
+    expect(afterGuest?.passDeadline).toBe(passing?.passDeadline);
+    expect(afterGuest?.players.every((p) => p.submitted)).toBe(true);
+
+    const still = await getRoom(code);
+    expect(still?.status).toBe("ranking");
+    expect(still?.result).toBeNull();
+  });
+
+  it("still starts over after the countdown when everyone locked in during it", async () => {
+    const { code, hostId, guestId, movieIds } = await rankingRoom();
+    const [first, second] = movieIds;
+
+    await submitRankings(code, hostId, [first]);
+    const passing = await requestPass(code, hostId, [first]);
+    expect(passing?.passDeadline).not.toBeNull();
+
+    await submitRankings(code, guestId, [second]);
+
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(
+      passing!.passDeadline! + 1
+    );
+    try {
+      const passed = await getRoom(code);
+      expect(passed?.status).toBe("picking");
+      expect(passed?.result).toBeNull();
+      expect(passed?.passDeadline).toBeNull();
+      expect(passed?.players.every((p) => p.submitted)).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
