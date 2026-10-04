@@ -13,6 +13,7 @@ import { RoomStatus } from "@/components/RoomStatus";
 import {
   addCustomMovieApi,
   clearDraftRankings,
+  ensurePlayer,
   joinRoomApi,
   loadDraftRankings,
   loadPlayer,
@@ -142,6 +143,7 @@ export default function RoomClient({
   const [myMoods, setMyMoods] = useState<Mood[]>(["any"]);
   const [moodsSynced, setMoodsSynced] = useState(false);
   const moodSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const joinInFlight = useRef(false);
 
   useEffect(() => {
     if (!code) return;
@@ -240,15 +242,16 @@ export default function RoomClient({
   }, []);
 
   const handleJoin = async () => {
-    if (!joinInput.trim() || !code) return;
+    if (!joinInput.trim() || !code || joinInFlight.current) return;
+    joinInFlight.current = true;
     setJoining(true);
     setJoinError(null);
     try {
-      const saved = loadPlayer(code);
+      const identity = ensurePlayer(code, joinInput.trim());
       const data = await joinRoomApi(
         code,
         joinInput.trim(),
-        saved?.playerId
+        identity.playerId
       );
       savePlayer(code, data.playerId, joinInput.trim());
       setPlayerId(data.playerId);
@@ -259,6 +262,7 @@ export default function RoomClient({
         "Couldn't get you in. If the night already started, use the same name you joined with."
       );
     } finally {
+      joinInFlight.current = false;
       setJoining(false);
     }
   };
@@ -269,10 +273,12 @@ export default function RoomClient({
     setAutoJoined(true);
     setJoinInput(joinName);
     void (async () => {
+      if (joinInFlight.current) return;
+      joinInFlight.current = true;
       setJoining(true);
       try {
-        const saved = loadPlayer(code);
-        const data = await joinRoomApi(code, joinName.trim(), saved?.playerId);
+        const identity = ensurePlayer(code, joinName.trim());
+        const data = await joinRoomApi(code, joinName.trim(), identity.playerId);
         savePlayer(code, data.playerId, joinName.trim());
         setPlayerId(data.playerId);
         setPlayerName(joinName.trim());
@@ -280,6 +286,7 @@ export default function RoomClient({
       } catch {
         // Fall through to the manual join form.
       } finally {
+        joinInFlight.current = false;
         setJoining(false);
       }
     })();
