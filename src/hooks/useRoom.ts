@@ -7,8 +7,12 @@ const PLAYER_KEY = "butter-popcorn-player";
 const playerKey = (roomCode: string) =>
   `${PLAYER_KEY}:${roomCode.toUpperCase()}`;
 
+/** Same-tab fallback when localStorage is missing (private mode). */
+const memoryPlayers = new Map<string, { playerId: string; name: string }>();
+
 export function savePlayer(roomCode: string, playerId: string, name: string) {
   const data = { roomCode: roomCode.toUpperCase(), playerId, name };
+  memoryPlayers.set(data.roomCode, { playerId, name });
   try {
     localStorage.setItem(playerKey(roomCode), JSON.stringify(data));
     // Legacy single-key write so older tabs still find something briefly.
@@ -19,6 +23,7 @@ export function savePlayer(roomCode: string, playerId: string, name: string) {
 }
 
 export function loadPlayer(roomCode: string): { playerId: string; name: string } | null {
+  const remembered = memoryPlayers.get(roomCode.toUpperCase());
   try {
     const scoped = localStorage.getItem(playerKey(roomCode));
     if (scoped) {
@@ -29,14 +34,40 @@ export function loadPlayer(roomCode: string): { playerId: string; name: string }
     }
     // Migrate from the old global key if it matches this room.
     const raw = localStorage.getItem(PLAYER_KEY);
-    if (!raw) return null;
+    if (!raw) return remembered ?? null;
     const data = JSON.parse(raw);
-    if (data.roomCode?.toUpperCase() !== roomCode.toUpperCase()) return null;
+    if (data.roomCode?.toUpperCase() !== roomCode.toUpperCase()) {
+      return remembered ?? null;
+    }
     savePlayer(roomCode, data.playerId, data.name);
     return { playerId: data.playerId, name: data.name };
   } catch {
-    return null;
+    return remembered ?? null;
   }
+}
+
+/**
+ * Persist (or reuse) a player id *before* calling join so a retry cannot
+ * create a second slot if the first response never arrives.
+ */
+export function ensurePlayer(
+  roomCode: string,
+  name: string
+): { playerId: string; name: string } {
+  const trimmed = name.trim();
+  const saved = loadPlayer(roomCode);
+  if (saved?.playerId) {
+    const nextName = trimmed || saved.name;
+    if (nextName && nextName !== saved.name) {
+      savePlayer(roomCode, saved.playerId, nextName);
+    }
+    return { playerId: saved.playerId, name: nextName };
+  }
+
+  const playerId = crypto.randomUUID();
+  const resolvedName = trimmed || "Guest";
+  savePlayer(roomCode, playerId, resolvedName);
+  return { playerId, name: resolvedName };
 }
 
 const draftKey = (roomCode: string, playerId: string) =>

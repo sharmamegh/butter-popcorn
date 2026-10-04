@@ -10,6 +10,7 @@ import {
 import {
   addCustomMovie,
   createRoom,
+  generatePlayerId,
   getRoom,
   joinRoom,
   setPicksReady,
@@ -76,6 +77,15 @@ describe("joinRoom identities", () => {
     expect(room?.players).toHaveLength(2);
   });
 
+  it("ignores a malformed client player id and still creates one slot", async () => {
+    const created = await createRoom("Host", 3);
+    const joined = await joinRoom(created.code, "Sam", {
+      playerId: "not-a-uuid",
+    });
+    expect(joined?.playerId).toBeTruthy();
+    expect(joined?.playerId).not.toBe("not-a-uuid");
+  });
+
   it("reattaches a unique name after the lobby so a lost tab can continue", async () => {
     const created = await createRoom("Alex", 3);
     const guest = await joinRoom(created.code, "Sam");
@@ -86,6 +96,39 @@ describe("joinRoom identities", () => {
 
     const recovered = await joinRoom(created.code, "alex");
     expect(recovered?.playerId).toBe(created.hostId);
+  });
+
+  it("reattaches a retried lobby join that already minted a player id", async () => {
+    const created = await createRoom("Host", 4);
+    const playerId = generatePlayerId();
+
+    const [first, second] = await Promise.all([
+      joinRoom(created.code, "Sam", { playerId }),
+      joinRoom(created.code, "Sam", { playerId }),
+    ]);
+
+    expect(first?.playerId).toBe(playerId);
+    expect(second?.playerId).toBe(playerId);
+
+    const room = await getRoom(created.code);
+    expect(room?.players).toHaveLength(2);
+    expect(room?.players.filter((p) => p.name === "Sam")).toHaveLength(1);
+  });
+
+  it("still gives two same-name guests distinct slots when each brings an id", async () => {
+    const created = await createRoom("Alex", 3);
+    const firstId = generatePlayerId();
+    const secondId = generatePlayerId();
+
+    const first = await joinRoom(created.code, "Alex", { playerId: firstId });
+    const second = await joinRoom(created.code, "Alex", { playerId: secondId });
+
+    expect(first?.playerId).toBe(firstId);
+    expect(second?.playerId).toBe(secondId);
+
+    const room = await getRoom(created.code);
+    expect(room?.players).toHaveLength(3);
+    expect(new Set(room!.players.map((p) => p.id)).size).toBe(3);
   });
 
   it("does not steal a slot when two players already share a name", async () => {

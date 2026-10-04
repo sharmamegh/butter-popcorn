@@ -71,6 +71,16 @@ export function generatePlayerId(): string {
   return crypto.randomUUID();
 }
 
+/** Client-generated join tokens are UUIDs so a retry can reuse the same slot. */
+export function isPlayerId(value: string | undefined): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  );
+}
+
 export async function createRoom(
   hostName: string,
   expectedPlayers = 2
@@ -274,7 +284,9 @@ export async function joinRoom(
 
     if (current.players.length >= current.expectedPlayers) return null;
 
-    playerId = generatePlayerId();
+    // Honor a client-generated id so a dropped response / double-tap retry
+    // reattaches instead of leaving a ghost who can never tap ready.
+    playerId = isPlayerId(opts.playerId) ? opts.playerId : generatePlayerId();
     const player: RoomPlayer = {
       id: playerId,
       name: trimmed || `Guest ${current.players.length + 1}`,
