@@ -247,12 +247,19 @@ async function discoverPage(opts: DiscoverOpts): Promise<TmdbMovie[]> {
 
 function genresForMoods(moods: Mood[]): number[] {
   const normalized = normalizeMoods(moods);
-  if (normalized.includes("any") || normalized.includes("bollywood")) {
-    // Open / Bollywood-first nights still get a cross-genre sprinkle.
+  if (normalized.includes("any")) {
+    return [...DIVERSITY_GENRES];
+  }
+  // Bollywood alone: still sprinkle genres, but only inside Hindi fetches.
+  if (normalized.length === 1 && normalized[0] === "bollywood") {
     return [...DIVERSITY_GENRES];
   }
   return [
-    ...new Set(normalized.flatMap((mood) => MOOD_GENRES[mood] ?? [])),
+    ...new Set(
+      normalized
+        .filter((mood) => mood !== "bollywood")
+        .flatMap((mood) => MOOD_GENRES[mood] ?? [])
+    ),
   ];
 }
 
@@ -267,6 +274,12 @@ async function discoverDiverse(
   const normalized = normalizeMoods(moods);
   const h = hashSeed(seed);
   const startPage = (h % 8) + 1;
+  const isAny = normalized.includes("any");
+  const bollywoodOnly =
+    normalized.length === 1 && normalized[0] === "bollywood";
+  const includesBollywood = normalized.includes("bollywood");
+  // Bollywood selected (alone or with other moods) means Hindi-only results.
+  const hindiOnly = bollywoodOnly || (includesBollywood && !isAny);
   const genreIds = genresForMoods(normalized);
   const buckets: TmdbMovie[][] = [];
 
@@ -280,37 +293,32 @@ async function discoverDiverse(
       discoverPage({
         page,
         withGenres: String(genreId),
-        voteCountGte: "150",
+        withOriginalLanguage: hindiOnly ? "hi" : undefined,
+        voteCountGte: hindiOnly ? "40" : "150",
       }).catch(() => [])
     );
   }
 
-  // Always keep Hindi/Bollywood in the pool so it isn't wiped by global top hits.
-  const bollywoodGenres =
-    normalized.includes("any") || normalized.includes("bollywood")
-      ? undefined
-      : genreIds.slice(0, 4).join("|") || undefined;
-  fetches.push(
-    discoverPage({
-      page: ((startPage + 3) % 10) + 1,
-      withOriginalLanguage: "hi",
-      withGenres: bollywoodGenres,
-      voteCountGte: "80",
-    }).catch(() => [])
-  );
-  // Extra Bollywood depth on open / Bollywood nights.
-  if (normalized.includes("any") || normalized.includes("bollywood")) {
+  // Hindi depth: sprinkle on open nights; primary pool when Bollywood is on.
+  if (isAny || includesBollywood) {
     fetches.push(
       discoverPage({
-        page: ((startPage + 7) % 10) + 1,
+        page: ((startPage + 3) % 10) + 1,
         withOriginalLanguage: "hi",
         voteCountGte: "50",
       }).catch(() => [])
     );
+    fetches.push(
+      discoverPage({
+        page: ((startPage + 7) % 10) + 1,
+        withOriginalLanguage: "hi",
+        voteCountGte: "30",
+      }).catch(() => [])
+    );
   }
 
-  // Broad popular page as glue when moods are specific.
-  if (!normalized.includes("any") && !normalized.includes("bollywood")) {
+  // Broad popular page as glue — never when the night is Hindi-only.
+  if (!isAny && !hindiOnly && genreIds.length > 0) {
     fetches.push(
       discoverPage({
         page: startPage,
@@ -318,7 +326,7 @@ async function discoverDiverse(
         voteCountGte: "200",
       }).catch(() => [])
     );
-  } else if (normalized.includes("any")) {
+  } else if (isAny) {
     fetches.push(
       discoverPage({
         page: startPage,
@@ -329,7 +337,12 @@ async function discoverDiverse(
 
   const results = await Promise.all(fetches);
   for (const list of results) {
-    if (list.length) buckets.push(seededShuffle(list, `${seed}-${buckets.length}`));
+    const filtered = hindiOnly
+      ? list.filter((m) => m.original_language === "hi")
+      : list;
+    if (filtered.length) {
+      buckets.push(seededShuffle(filtered, `${seed}-${buckets.length}`));
+    }
   }
 
   // Round-robin across buckets so no single genre monopolizes the slate.
@@ -342,6 +355,7 @@ async function discoverDiverse(
       while (bucket.length) {
         const next = bucket.shift()!;
         if (seen.has(next.id)) continue;
+        if (hindiOnly && next.original_language !== "hi") continue;
         seen.add(next.id);
         interleaved.push(next);
         added = true;
@@ -463,7 +477,11 @@ export async function buildSessionMovies(options: {
   let slate = [...customMovies, ...picked];
 
   // Last resort: pad from the built-in catalog so ranking can always start.
-  if (slate.length < Math.min(count, 2)) {
+  // Skip for Hindi-only nights — the static pool is English-first.
+  const hindiOnlyNight =
+    !normalizedMoods.includes("any") &&
+    normalizedMoods.includes("bollywood");
+  if (!hindiOnlyNight && slate.length < Math.min(count, 2)) {
     const need = Math.max(2, count) - slate.length;
     const have = new Set(slate.map((m) => m.id));
     const extras = getStaticSessionMovies(`${seed}-static`, need + have.size)
