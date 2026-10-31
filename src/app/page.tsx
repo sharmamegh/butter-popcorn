@@ -29,7 +29,7 @@ export default function Home() {
     setLoading(true);
     setCreateError(null);
 
-    // Solo: Top recommends — no shared room needed.
+    // Solo: Top recommends; no shared room needed.
     if (isSolo) {
       router.push(
         `/explore?name=${encodeURIComponent(name.trim())}`
@@ -98,7 +98,7 @@ export default function Home() {
               >
                 Just me
                 <span className="mt-0.5 block text-xs font-normal text-stone-500">
-                  Top recommends — pick a mood, rank, lock in a winner
+                  Top recommends. Pick a mood, rank, lock in a winner.
                 </span>
               </button>
 
