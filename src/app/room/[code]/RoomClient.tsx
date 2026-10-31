@@ -127,7 +127,7 @@ function PassCountdown({
         Starting over in {seconds}…
       </p>
       <p className="mt-1 text-sm text-stone-400">
-        Favorites you&apos;re ranking will join the next mix.
+        Your top picks come with you.
       </p>
     </div>
   );
@@ -553,7 +553,7 @@ export default function RoomClient({
         <div className="w-full max-w-md space-y-6">
           <div className="text-center">
             <p className="mb-1 text-sm uppercase tracking-[0.25em] text-butter-500">
-              Build the list
+              Tonight&apos;s picks
             </p>
             <h2 className="text-2xl font-bold text-stone-100">
               What do you want to watch?
@@ -561,8 +561,8 @@ export default function RoomClient({
             <p className="mt-1 text-sm text-stone-500">
               {readyCount}/{room.players.length} ready
               {customPicks.length > 0
-                ? ` · ${customPicks.length} in the mix`
-                : " · suggestions fill in if you skip adding"}
+                ? ` · ${customPicks.length} already added`
+                : " · we'll suggest more if the list is short"}
             </p>
           </div>
 
@@ -607,14 +607,14 @@ export default function RoomClient({
               selectedPicks={myPicks}
               onAdd={handleAddCustom}
               onRemove={handleRemoveCustom}
-              label="Movies you want in the mix"
+              label="Add a movie you already want"
             />
           )}
 
           {customPicks.length > 0 && (
             <div className="space-y-3 rounded-2xl border border-cinema-600 bg-cinema-800/40 p-4">
               <p className="text-sm text-stone-400">
-                In the mix · {customPicks.length}
+                Added · {customPicks.length}
               </p>
               <ul className="space-y-2">
                 {customPicks.map((pick) => {

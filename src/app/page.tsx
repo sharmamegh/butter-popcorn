@@ -146,7 +146,7 @@ export default function Home() {
                   onClick={() => router.push("/explore")}
                   className="text-sm text-butter-400 hover:text-butter-300 cursor-pointer"
                 >
-                  Try Top recommends instead
+                  Pick something solo instead
                 </button>
               </div>
             )}
@@ -162,7 +162,7 @@ export default function Home() {
                   ? "Opening…"
                   : "Creating..."
                 : isSolo
-                  ? "Top recommends 🍿"
+                  ? "Find something to watch 🍿"
                   : "Start a room 🍿"}
             </button>
 

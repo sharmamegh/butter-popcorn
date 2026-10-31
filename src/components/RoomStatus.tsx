@@ -24,8 +24,8 @@ const COPY: Record<
     body: "Something glitched while opening this room. Try again in a moment.",
   },
   storage: {
-    title: "Shared rooms are offline",
-    body: "This site can’t save group rooms right now. Top recommends still works from home.",
+    title: "Group rooms are down",
+    body: "We can’t save a shared night right now. You can still pick something solo from home.",
   },
 };
 
@@ -103,7 +103,7 @@ export function RoomStatus({
             href="/explore"
             className="block w-full py-2 text-sm text-stone-500 transition-colors hover:text-butter-400"
           >
-            Try Top recommends instead
+            Pick something solo instead
           </Link>
         ) : (
           <Link

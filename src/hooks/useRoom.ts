@@ -202,7 +202,7 @@ export async function createRoom(
   if (!res.ok) {
     let message =
       res.status === 503
-        ? "Shared rooms can't save on this site right now."
+        ? "Group rooms aren't saving right now. Try again in a bit, or watch solo from home."
         : res.status >= 500
           ? "Couldn't open a new room. Try again in a moment."
           : "Couldn't open a new room.";
