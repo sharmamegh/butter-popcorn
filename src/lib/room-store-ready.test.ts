@@ -135,7 +135,7 @@ describe("setPicksReady slate build", () => {
   });
 
   it("leaves the last player unready if applying the slate throws", async () => {
-    const storage = getStorage();
+    const storage = await getStorage();
     const exclusive = storage.runExclusive.bind(storage);
 
     let failApply = false;

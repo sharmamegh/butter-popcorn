@@ -21,7 +21,8 @@ export type Mood =
   | "sci-fi"
   | "comedy"
   | "drama"
-  | "thriller";
+  | "thriller"
+  | "bollywood";
 
 export const MOODS: { id: Mood; label: string; emoji: string }[] = [
   { id: "any", label: "Surprise Me", emoji: "🎲" },
@@ -33,6 +34,7 @@ export const MOODS: { id: Mood; label: string; emoji: string }[] = [
   { id: "horror", label: "Horror", emoji: "👻" },
   { id: "thriller", label: "Thriller", emoji: "🔪" },
   { id: "drama", label: "Drama", emoji: "🎭" },
+  { id: "bollywood", label: "Bollywood", emoji: "🎬" },
 ];
 
 const MOOD_IDS = new Set(MOODS.map((m) => m.id));

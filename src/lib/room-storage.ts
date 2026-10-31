@@ -221,13 +221,63 @@ function redisRestCredentials(): { url: string; token: string } | null {
   return { url, token };
 }
 
-function createStorage(): RoomStorage {
+async function probeRedis(
+  redis: import("@upstash/redis").Redis
+): Promise<boolean> {
+  try {
+    const pong = await redis.ping();
+    return pong === "PONG" || pong === "pong" || Boolean(pong);
+  } catch (err) {
+    console.error(
+      "[butter-popcorn] Redis probe failed — credentials point at an unreachable store",
+      err instanceof Error ? err.message : err
+    );
+    return false;
+  }
+}
+
+type StorageMode = "upstash" | "file" | "memory";
+type StorageInit = {
+  storage: RoomStorage;
+  mode: StorageMode;
+  /** Credentials exist but Redis did not respond. */
+  redisUnreachable: boolean;
+};
+
+let storageInit: StorageInit | null = null;
+let storageInitPromise: Promise<StorageInit> | null = null;
+
+async function createStorage(): Promise<StorageInit> {
   const creds = redisRestCredentials();
 
   if (creds) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
-    return new UpstashStorage(new Redis(creds));
+    const redis = new Redis(creds);
+    const ok = await probeRedis(redis);
+    if (ok) {
+      return {
+        storage: new UpstashStorage(redis),
+        mode: "upstash",
+        redisUnreachable: false,
+      };
+    }
+    // Dead Marketplace URL would otherwise throw opaque 500s on every create.
+    console.error(
+      "[butter-popcorn] Falling back because Redis REST host is unreachable. Reconnect Upstash in Vercel Storage."
+    );
+    if (process.env.VERCEL) {
+      return {
+        storage: new MemoryStorage(),
+        mode: "memory",
+        redisUnreachable: true,
+      };
+    }
+    return {
+      storage: new FileStorage(path.join(process.cwd(), ".data", "rooms")),
+      mode: "file",
+      redisUnreachable: true,
+    };
   }
 
   // Vercel filesystem is read-only / ephemeral per instance.
@@ -236,34 +286,67 @@ function createStorage(): RoomStorage {
     console.error(
       "[butter-popcorn] Redis REST URL/token missing (UPSTASH_REDIS_* or REDIS_KV_REST_API_*). Rooms will not persist across serverless instances."
     );
-    return new MemoryStorage();
+    return {
+      storage: new MemoryStorage(),
+      mode: "memory",
+      redisUnreachable: false,
+    };
   }
 
   // Local file store survives Next.js HMR.
-  return new FileStorage(path.join(process.cwd(), ".data", "rooms"));
+  return {
+    storage: new FileStorage(path.join(process.cwd(), ".data", "rooms")),
+    mode: "file",
+    redisUnreachable: false,
+  };
 }
 
-let storage: RoomStorage | null = null;
-
-export function getStorage(): RoomStorage {
-  if (!storage) storage = createStorage();
-  return storage;
+async function ensureStorage(): Promise<StorageInit> {
+  if (storageInit) return storageInit;
+  if (!storageInitPromise) {
+    storageInitPromise = createStorage().then((init) => {
+      storageInit = init;
+      return init;
+    });
+  }
+  return storageInitPromise;
 }
 
-export function storageMode(): "upstash" | "file" | "memory" {
-  if (redisRestCredentials()) return "upstash";
-  if (process.env.VERCEL) return "memory";
-  return "file";
+export async function getStorage(): Promise<RoomStorage> {
+  return (await ensureStorage()).storage;
+}
+
+export async function storageMode(): Promise<StorageMode> {
+  return (await ensureStorage()).mode;
 }
 
 /** True when room state will survive across serverless invocations. */
-export function hasPersistentStorage(): boolean {
-  return storageMode() !== "memory";
+export async function hasPersistentStorage(): Promise<boolean> {
+  const init = await ensureStorage();
+  return init.mode === "upstash" || init.mode === "file";
+}
+
+export async function storageStatus(): Promise<{
+  mode: StorageMode;
+  persistent: boolean;
+  redisUnreachable: boolean;
+}> {
+  const init = await ensureStorage();
+  return {
+    mode: init.mode,
+    persistent: init.mode === "upstash" || init.mode === "file",
+    redisUnreachable: init.redisUnreachable,
+  };
 }
 
 /** Test-only: swap the process-wide storage singleton. */
 export function installStorageForTests(impl: RoomStorage) {
-  storage = impl;
+  storageInit = {
+    storage: impl,
+    mode: "memory",
+    redisUnreachable: false,
+  };
+  storageInitPromise = Promise.resolve(storageInit);
 }
 
 export function createFileStorage(dir: string): RoomStorage {

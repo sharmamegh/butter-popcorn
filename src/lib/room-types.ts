@@ -37,6 +37,9 @@ export type MatchResult = {
   insight: string;
 };
 
+/** How the ranking slate is filled once everyone is ready. */
+export type DiscoveryMode = "auto" | "blank";
+
 export type Room = {
   code: string;
   seed: string;
@@ -51,6 +54,11 @@ export type Room = {
   usedMovieIds: string[];
   excludedMovieIds: string[];
   expectedPlayers: number;
+  /**
+   * auto = pad with mood-based suggestions (default).
+   * blank = only movies people added (solo explorers / hand-picked nights).
+   */
+  discoveryMode?: DiscoveryMode;
   status: RoomStatus;
   players: RoomPlayer[];
   hostId: string;
@@ -80,6 +88,7 @@ export type PublicRoom = {
   movies: Movie[];
   customPicks: CustomPick[];
   expectedPlayers: number;
+  discoveryMode: DiscoveryMode;
   status: RoomStatus;
   players: PublicPlayer[];
   hostId: string;
@@ -151,6 +160,7 @@ export function toPublicRoom(room: Room, tmdbEnabled: boolean): PublicRoom {
     movies,
     customPicks: roomCustomPicks(room),
     expectedPlayers: room.expectedPlayers,
+    discoveryMode: room.discoveryMode === "blank" ? "blank" : "auto",
     status: room.status,
     players: room.players.map((p) => ({
       id: p.id,

@@ -100,6 +100,12 @@ function buildInsight(room: Room, winnerId: string): string {
 
   if (ranks.length === 0) return "The algorithm has spoken.";
 
+  if (ranks.length === 1) {
+    if (ranks[0] === 1) return "Your #1. Go make the popcorn.";
+    if (ranks[0] <= 3) return "High on your list. A solid night in.";
+    return "Best fit from the titles you ranked.";
+  }
+
   const allTop3 = ranks.every((r) => r <= 3);
   const bothNumberOne = ranks.every((r) => r === 1);
 

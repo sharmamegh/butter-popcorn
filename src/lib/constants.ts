@@ -1,5 +1,5 @@
-/** How many people a room can hold */
-export const MIN_PLAYERS = 2;
+/** How many people a room can hold (1 = solo explorer). */
+export const MIN_PLAYERS = 1;
 export const MAX_PLAYERS = 8;
 
 export const PLAYER_SIZE_OPTIONS = Array.from(

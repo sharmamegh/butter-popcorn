@@ -73,9 +73,10 @@ export function generatePlayerId(): string {
 
 export async function createRoom(
   hostName: string,
-  expectedPlayers = 2
+  expectedPlayers = 2,
+  options: { discoveryMode?: "auto" | "blank" } = {}
 ): Promise<Room> {
-  const storage = getStorage();
+  const storage = await getStorage();
   let code = generateCode();
   while (await storage.get(code)) {
     code = generateCode();
@@ -83,6 +84,12 @@ export async function createRoom(
 
   const hostId = generatePlayerId();
   const seed = `${code}-${Date.now()}`;
+  const clampedPlayers = Math.min(
+    MAX_PLAYERS,
+    Math.max(MIN_PLAYERS, expectedPlayers)
+  );
+  const discoveryMode =
+    options.discoveryMode === "blank" ? "blank" : "auto";
 
   const room: Room = {
     code,
@@ -94,10 +101,8 @@ export async function createRoom(
     customPicks: [],
     usedMovieIds: [],
     excludedMovieIds: [],
-    expectedPlayers: Math.min(
-      MAX_PLAYERS,
-      Math.max(MIN_PLAYERS, expectedPlayers)
-    ),
+    expectedPlayers: clampedPlayers,
+    discoveryMode,
     status: "lobby",
     hostId,
     result: null,
@@ -128,7 +133,7 @@ export async function createRoom(
  * Load + maybe settle a pass. Must only be called while holding the room lock.
  */
 async function loadRoomUnlocked(code: string): Promise<Room | null> {
-  const room = await getStorage().get(code);
+  const room = await (await getStorage()).get(code);
   if (!room) return null;
   return settlePassIfDueUnlocked(room);
 }
@@ -140,7 +145,8 @@ async function mutateRoom(
   code: string,
   fn: (room: Room) => Promise<Room | null>
 ): Promise<Room | null> {
-  return getStorage().runExclusive(code, async () => {
+  const storage = await getStorage();
+  return storage.runExclusive(code, async () => {
     const room = await loadRoomUnlocked(code);
     if (!room) return null;
     return fn(room);
@@ -148,11 +154,12 @@ async function mutateRoom(
 }
 
 export async function getRoom(code: string): Promise<Room | null> {
-  return getStorage().runExclusive(code, () => loadRoomUnlocked(code));
+  const storage = await getStorage();
+  return storage.runExclusive(code, () => loadRoomUnlocked(code));
 }
 
 export async function saveRoom(room: Room): Promise<void> {
-  await getStorage().set(room);
+  await (await getStorage()).set(room);
 }
 
 function rememberPassFavorites(
@@ -304,7 +311,9 @@ export async function startPicking(
 ): Promise<Room | null> {
   return mutateRoom(code, async (room) => {
     if (room.hostId !== playerId || room.status !== "lobby") return null;
-    if (room.players.length < 2) return null;
+    // Solo rooms (expectedPlayers === 1) can start alone; groups need 2+.
+    const minToStart = room.expectedPlayers <= 1 ? 1 : 2;
+    if (room.players.length < minToStart) return null;
 
     room.status = "picking";
     room.customPicks = roomCustomPicks(room);
@@ -379,10 +388,17 @@ export async function removeCustomMovie(
   });
 }
 
+function roomFillsFromDiscovery(room: Room): boolean {
+  return room.discoveryMode !== "blank";
+}
+
 async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   const customIds = uniqueCustomIds(room);
-  // Every custom stays, plus a fresh batch of suggestions on top.
-  const count = Math.max(customIds.length + DISCOVERY_FILL_COUNT, 2);
+  const fillFromDiscovery = roomFillsFromDiscovery(room);
+  // Blank slate: only what the group added. Auto: customs + discovery fill.
+  const count = fillFromDiscovery
+    ? Math.max(customIds.length + DISCOVERY_FILL_COUNT, 2)
+    : Math.max(customIds.length, 2);
 
   let movies: Movie[] = [];
   try {
@@ -392,7 +408,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
       count,
       excludeIds: room.usedMovieIds,
       customTmdbIds: customIds,
-      fillFromDiscovery: true,
+      fillFromDiscovery,
     });
   } catch (err) {
     console.error("[butter-popcorn] buildSessionMovies failed", err);
@@ -400,7 +416,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
 
   movies = ensureCustomsOnSlate(room, movies);
 
-  if (movies.length < 2) {
+  if (fillFromDiscovery && movies.length < 2) {
     try {
       movies = await buildSessionMovies({
         seed: `${seed}-recycle`,
@@ -416,7 +432,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
     }
   }
 
-  if (movies.length < 2) {
+  if (fillFromDiscovery && movies.length < 2) {
     const staticPad = getSessionMovies(`${seed}-static`, count);
     const have = new Set(movies.map((m) => m.id));
     movies = [
@@ -502,6 +518,18 @@ export async function setPicksReady(
   if (!prepared) return null;
   if (!startingSlate) {
     return prepared;
+  }
+
+  // Blank slate needs a real mix before ranking can start.
+  if (
+    prepared.discoveryMode === "blank" &&
+    uniqueCustomIds(prepared).length < 2
+  ) {
+    return mutateRoom(code, async (room) => {
+      clearReadyFlags(room);
+      await saveRoom(room);
+      return room;
+    });
   }
 
   // Fetch the slate outside the lock so other players aren't blocked on TMDB.
@@ -733,7 +761,7 @@ export async function newRound(
 }
 
 export async function pruneRooms(): Promise<void> {
-  await getStorage().prune();
+  await (await getStorage()).prune();
 }
 
 export { isTmdbEnabled };
