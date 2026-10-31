@@ -87,7 +87,8 @@ export default function Home() {
               >
                 Just me
                 <span className="mt-0.5 block text-xs font-normal text-stone-500">
-                  Top recommends. Pick a mood, rank, lock in a winner.
+                  Solo night. Choose a vibe and find something you&apos;ll
+                  actually watch.
                 </span>
               </button>
 

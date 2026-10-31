@@ -321,8 +321,7 @@ function ExploreInner() {
             What are you in the mood for?
           </h2>
           <p className="mt-1 text-sm text-stone-500">
-            A mixed slate across vibes, including Bollywood. Rank a few favorites
-            and lock in tonight&apos;s pick.
+            Choose a vibe. We&apos;ll line up options for tonight.
           </p>
         </div>
 
@@ -332,12 +331,12 @@ function ExploreInner() {
           selectedPicks={selectedPicks}
           onAdd={handleAdd}
           onRemove={handleRemove}
-          label="Must-include titles (optional)"
+          label="Already know something you want? (optional)"
         />
 
         {picks.length > 0 && (
           <p className="text-center text-sm text-stone-500">
-            {picks.length} locked into the mix
+            Keeping {picks.length} in for sure
           </p>
         )}
 
