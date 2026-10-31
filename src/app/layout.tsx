@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Butter Popcorn | Group Movie Picker",
   description:
-    "Rank movies with your friends on separate devices. Butter Popcorn finds the group's most compatible pick.",
+    "Stop arguing over what to watch. Butter Popcorn finds a movie everyone can live with.",
 };
 
 export default function RootLayout({

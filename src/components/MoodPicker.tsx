@@ -29,7 +29,7 @@ export function MoodPicker({
   return (
     <div className="space-y-2">
       <span className="text-sm text-stone-400 block">What are you in the mood for?</span>
-      <p className="text-xs text-stone-600">Pick as many as you like. Everyone&apos;s picks shape the suggestions.</p>
+      <p className="text-xs text-stone-600">Pick as many as you like.</p>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Movie moods">
         {MOODS.map((mood) => {
           const active =

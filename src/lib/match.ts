@@ -98,7 +98,7 @@ function buildInsight(room: Room, winnerId: string): string {
     if (idx >= 0) ranks.push(idx + 1);
   }
 
-  if (ranks.length === 0) return "The algorithm has spoken.";
+  if (ranks.length === 0) return "That's the pick. Dig in.";
 
   if (ranks.length === 1) {
     if (ranks[0] === 1) return "Your #1. Go make the popcorn.";

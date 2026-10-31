@@ -67,7 +67,7 @@ function SoloReveal({
         onClick={onAgain}
         className="w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900"
       >
-        Fresh recommendations
+        Show me new options
       </button>
       <Link
         href="/"
@@ -303,7 +303,7 @@ function ExploreInner() {
             onClick={reset}
             className="w-full cursor-pointer py-2 text-sm text-stone-500 hover:text-butter-400"
           >
-            ← New recommendations
+            ← Start over
           </button>
         </div>
       </CinemaShell>
@@ -315,7 +315,7 @@ function ExploreInner() {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <p className="mb-1 text-sm uppercase tracking-[0.25em] text-butter-500">
-            Top recommends
+            Tonight
           </p>
           <h2 className="text-2xl font-bold text-stone-100">
             What are you in the mood for?
@@ -352,7 +352,7 @@ function ExploreInner() {
           disabled={loadingSlate}
           className="w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
         >
-          {loadingSlate ? "Loading recommendations…" : "Show top recommends"}
+          {loadingSlate ? "Finding options…" : "Show me options"}
         </button>
 
         <Link
@@ -371,7 +371,7 @@ export default function ExplorePage() {
     <Suspense
       fallback={
         <CinemaShell>
-          <p className="text-stone-400">Opening Top recommends…</p>
+          <p className="text-stone-400">One sec…</p>
         </CinemaShell>
       }
     >
