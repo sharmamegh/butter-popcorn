@@ -73,9 +73,10 @@ export function generatePlayerId(): string {
 
 export async function createRoom(
   hostName: string,
-  expectedPlayers = 2
+  expectedPlayers = 2,
+  options: { discoveryMode?: "auto" | "blank" } = {}
 ): Promise<Room> {
-  const storage = getStorage();
+  const storage = await getStorage();
   let code = generateCode();
   while (await storage.get(code)) {
     code = generateCode();
@@ -83,6 +84,12 @@ export async function createRoom(
 
   const hostId = generatePlayerId();
   const seed = `${code}-${Date.now()}`;
+  const clampedPlayers = Math.min(
+    MAX_PLAYERS,
+    Math.max(MIN_PLAYERS, expectedPlayers)
+  );
+  const discoveryMode =
+    options.discoveryMode === "blank" ? "blank" : "auto";
 
   const room: Room = {
     code,
@@ -94,10 +101,8 @@ export async function createRoom(
     customPicks: [],
     usedMovieIds: [],
     excludedMovieIds: [],
-    expectedPlayers: Math.min(
-      MAX_PLAYERS,
-      Math.max(MIN_PLAYERS, expectedPlayers)
-    ),
+    expectedPlayers: clampedPlayers,
+    discoveryMode,
     status: "lobby",
     hostId,
     result: null,
@@ -125,13 +130,13 @@ export async function createRoom(
 }
 
 export async function getRoom(code: string): Promise<Room | null> {
-  const room = await getStorage().get(code);
+  const room = await (await getStorage()).get(code);
   if (!room) return null;
   return settlePassIfDue(room);
 }
 
 export async function saveRoom(room: Room): Promise<void> {
-  await getStorage().set(room);
+  await (await getStorage()).set(room);
 }
 
 function rememberPassFavorites(
@@ -270,7 +275,9 @@ export async function startPicking(
 ): Promise<Room | null> {
   const room = await getRoom(code);
   if (!room || room.hostId !== playerId || room.status !== "lobby") return null;
-  if (room.players.length < 2) return null;
+  // Solo rooms (expectedPlayers === 1) can start alone; groups need 2+.
+  const minToStart = room.expectedPlayers <= 1 ? 1 : 2;
+  if (room.players.length < minToStart) return null;
 
   room.status = "picking";
   room.customPicks = roomCustomPicks(room);
@@ -342,10 +349,17 @@ export async function removeCustomMovie(
   return room;
 }
 
+function roomFillsFromDiscovery(room: Room): boolean {
+  return room.discoveryMode !== "blank";
+}
+
 async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   const customIds = uniqueCustomIds(room);
-  // Every custom stays, plus a fresh batch of suggestions on top.
-  const count = Math.max(customIds.length + DISCOVERY_FILL_COUNT, 2);
+  const fillFromDiscovery = roomFillsFromDiscovery(room);
+  // Blank slate: only what the group added. Auto: customs + discovery fill.
+  const count = fillFromDiscovery
+    ? Math.max(customIds.length + DISCOVERY_FILL_COUNT, 2)
+    : Math.max(customIds.length, 2);
 
   let movies: Movie[] = [];
   try {
@@ -355,7 +369,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
       count,
       excludeIds: room.usedMovieIds,
       customTmdbIds: customIds,
-      fillFromDiscovery: true,
+      fillFromDiscovery,
     });
   } catch (err) {
     console.error("[butter-popcorn] buildSessionMovies failed", err);
@@ -363,7 +377,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
 
   movies = ensureCustomsOnSlate(room, movies);
 
-  if (movies.length < 2) {
+  if (fillFromDiscovery && movies.length < 2) {
     try {
       movies = await buildSessionMovies({
         seed: `${seed}-recycle`,
@@ -379,7 +393,7 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
     }
   }
 
-  if (movies.length < 2) {
+  if (fillFromDiscovery && movies.length < 2) {
     const staticPad = getSessionMovies(`${seed}-static`, count);
     const have = new Set(movies.map((m) => m.id));
     movies = [
@@ -459,6 +473,16 @@ export async function setPicksReady(
   room.moods = aggregatePlayerMoods(room.players);
 
   if (!(ready && room.players.every((p) => p.picksReady))) {
+    await saveRoom(room);
+    return room;
+  }
+
+  // Blank slate needs a real mix before ranking can start.
+  if (
+    room.discoveryMode === "blank" &&
+    uniqueCustomIds(room).length < 2
+  ) {
+    clearReadyFlags(room);
     await saveRoom(room);
     return room;
   }
@@ -649,7 +673,7 @@ export async function newRound(
 }
 
 export async function pruneRooms(): Promise<void> {
-  await getStorage().prune();
+  await (await getStorage()).prune();
 }
 
 export { isTmdbEnabled };

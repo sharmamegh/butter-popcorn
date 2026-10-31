@@ -58,24 +58,26 @@ const MOOD_GENRES: Record<Mood, number[]> = {
   horror: [27],
   thriller: [53, 80, 9648],
   drama: [18],
+  bollywood: [],
 };
 
-type TmdbMovie = {
-  id: number;
-  title: string;
-  overview: string;
-  release_date?: string;
-  genre_ids?: number[];
-  vote_average?: number;
-  popularity?: number;
-  poster_path?: string | null;
-};
-
-type TmdbMovieDetail = TmdbMovie & {
-  genres?: { id: number; name: string }[];
-  runtime?: number;
-  tagline?: string;
-};
+/** Genres we always try to sprinkle in when the group is open to anything. */
+const DIVERSITY_GENRES = [
+  28, // Action
+  35, // Comedy
+  18, // Drama
+  27, // Horror
+  10749, // Romance
+  878, // Sci-Fi
+  53, // Thriller
+  16, // Animation
+  12, // Adventure
+  14, // Fantasy
+  9648, // Mystery
+  10751, // Family
+  80, // Crime
+  10402, // Music
+];
 
 /**
  * TMDB auth: use the v3 **API Key** (query param `api_key`).
@@ -172,6 +174,24 @@ export function tmdbToMovie(item: TmdbMovie | TmdbMovieDetail): Movie {
   };
 }
 
+type TmdbMovie = {
+  id: number;
+  title: string;
+  overview: string;
+  release_date?: string;
+  genre_ids?: number[];
+  vote_average?: number;
+  popularity?: number;
+  poster_path?: string | null;
+  original_language?: string;
+};
+
+type TmdbMovieDetail = TmdbMovie & {
+  genres?: { id: number; name: string }[];
+  runtime?: number;
+  tagline?: string;
+};
+
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const res = await fetch(tmdbUrl(path, params), {
     next: { revalidate: 3600 },
@@ -196,27 +216,25 @@ export async function searchTmdbMovies(query: string): Promise<Movie[]> {
     .map(tmdbToMovie);
 }
 
-async function discoverPage(
-  moods: Mood[],
-  page: number
-): Promise<TmdbMovie[]> {
-  const genreIds = [
-    ...new Set(
-      normalizeMoods(moods).flatMap((mood) => MOOD_GENRES[mood] ?? [])
-    ),
-  ];
+type DiscoverOpts = {
+  page: number;
+  withGenres?: string;
+  withOriginalLanguage?: string;
+  voteCountGte?: string;
+};
+
+async function discoverPage(opts: DiscoverOpts): Promise<TmdbMovie[]> {
   const params: Record<string, string> = {
     sort_by: "popularity.desc",
     include_adult: "false",
     language: "en-US",
-    page: String(page),
-    "vote_count.gte": "200",
+    page: String(opts.page),
+    "vote_count.gte": opts.voteCountGte ?? "100",
     "vote_average.gte": "6.0",
   };
-
-  // Pipe = OR so comedy + horror means either vibe, not both at once
-  if (genreIds.length > 0) {
-    params.with_genres = genreIds.join("|");
+  if (opts.withGenres) params.with_genres = opts.withGenres;
+  if (opts.withOriginalLanguage) {
+    params.with_original_language = opts.withOriginalLanguage;
   }
 
   const data = await tmdbFetch<{ results: TmdbMovie[] }>(
@@ -225,6 +243,114 @@ async function discoverPage(
   );
 
   return data.results.filter((m) => m.poster_path && m.overview);
+}
+
+function genresForMoods(moods: Mood[]): number[] {
+  const normalized = normalizeMoods(moods);
+  if (normalized.includes("any") || normalized.includes("bollywood")) {
+    // Open / Bollywood-first nights still get a cross-genre sprinkle.
+    return [...DIVERSITY_GENRES];
+  }
+  return [
+    ...new Set(normalized.flatMap((mood) => MOOD_GENRES[mood] ?? [])),
+  ];
+}
+
+/**
+ * Pull a few titles per genre (and Bollywood) so one popularity page
+ * cannot wipe out whole vibes that sit outside the global top 10.
+ */
+async function discoverDiverse(
+  moods: Mood[],
+  seed: string
+): Promise<TmdbMovie[]> {
+  const normalized = normalizeMoods(moods);
+  const h = hashSeed(seed);
+  const startPage = (h % 8) + 1;
+  const genreIds = genresForMoods(normalized);
+  const buckets: TmdbMovie[][] = [];
+
+  const fetches: Promise<TmdbMovie[]>[] = [];
+
+  // One bucket per genre so underrepresented moods still appear.
+  for (let i = 0; i < genreIds.length; i++) {
+    const genreId = genreIds[i];
+    const page = ((startPage + i - 1) % 12) + 1;
+    fetches.push(
+      discoverPage({
+        page,
+        withGenres: String(genreId),
+        voteCountGte: "150",
+      }).catch(() => [])
+    );
+  }
+
+  // Always keep Hindi/Bollywood in the pool so it isn't wiped by global top hits.
+  const bollywoodGenres =
+    normalized.includes("any") || normalized.includes("bollywood")
+      ? undefined
+      : genreIds.slice(0, 4).join("|") || undefined;
+  fetches.push(
+    discoverPage({
+      page: ((startPage + 3) % 10) + 1,
+      withOriginalLanguage: "hi",
+      withGenres: bollywoodGenres,
+      voteCountGte: "80",
+    }).catch(() => [])
+  );
+  // Extra Bollywood depth on open / Bollywood nights.
+  if (normalized.includes("any") || normalized.includes("bollywood")) {
+    fetches.push(
+      discoverPage({
+        page: ((startPage + 7) % 10) + 1,
+        withOriginalLanguage: "hi",
+        voteCountGte: "50",
+      }).catch(() => [])
+    );
+  }
+
+  // Broad popular page as glue when moods are specific.
+  if (!normalized.includes("any") && !normalized.includes("bollywood")) {
+    fetches.push(
+      discoverPage({
+        page: startPage,
+        withGenres: genreIds.join("|"),
+        voteCountGte: "200",
+      }).catch(() => [])
+    );
+  } else if (normalized.includes("any")) {
+    fetches.push(
+      discoverPage({
+        page: startPage,
+        voteCountGte: "200",
+      }).catch(() => [])
+    );
+  }
+
+  const results = await Promise.all(fetches);
+  for (const list of results) {
+    if (list.length) buckets.push(seededShuffle(list, `${seed}-${buckets.length}`));
+  }
+
+  // Round-robin across buckets so no single genre monopolizes the slate.
+  const interleaved: TmdbMovie[] = [];
+  const seen = new Set<number>();
+  let added = true;
+  while (added) {
+    added = false;
+    for (const bucket of buckets) {
+      while (bucket.length) {
+        const next = bucket.shift()!;
+        if (seen.has(next.id)) continue;
+        seen.add(next.id);
+        interleaved.push(next);
+        added = true;
+        break;
+      }
+    }
+  }
+
+  return interleaved;
 }
 
 export async function fetchTmdbMovieDetails(tmdbId: number): Promise<Movie | null> {
@@ -282,16 +408,9 @@ export async function buildSessionMovies(options: {
     return customMovies;
   }
 
-  const h = hashSeed(seed);
-  const startPage = (h % 40) + 1;
-  const candidates: TmdbMovie[] = [];
-
+  let candidates: TmdbMovie[] = [];
   try {
-    for (let i = 0; i < 3; i++) {
-      const page = startPage + i;
-      const results = await discoverPage(normalizedMoods, page);
-      candidates.push(...results);
-    }
+    candidates = await discoverDiverse(normalizedMoods, seed);
   } catch {
     // Fall through — pad from static catalog below if needed.
   }

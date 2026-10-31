@@ -34,10 +34,27 @@ import { normalizeMoods } from "@/types/movie";
 
 function roomStatusKind(
   error: string | null
-): "missing" | "offline" | "error" {
+): "missing" | "offline" | "error" | "storage" {
   if (error === "Connection error") return "offline";
-  if (error === "Couldn't load room") return "error";
-  return "missing";
+  if (
+    error?.toLowerCase().includes("can't save") ||
+    error?.toLowerCase().includes("upstash") ||
+    error?.toLowerCase().includes("shared rooms")
+  ) {
+    return "storage";
+  }
+  if (
+    error === "Couldn't load this room right now." ||
+    error?.toLowerCase().includes("glitched") ||
+    error?.toLowerCase().includes("broke on our side")
+  ) {
+    return "error";
+  }
+  // Default: treat unknown load failures as missing-room UX (wrong/expired code).
+  if (!error || error.toLowerCase().includes("isn't active") || error.toLowerCase().includes("expired") || error.toLowerCase().includes("wrong")) {
+    return "missing";
+  }
+  return "error";
 }
 
 function moodSummary(moods: Mood[] | undefined): string {
@@ -62,6 +79,8 @@ function moodSummary(moods: Mood[] | undefined): string {
           return "Thriller";
         case "drama":
           return "Drama";
+        case "bollywood":
+          return "Bollywood";
         case "any":
           return "Surprise Me";
         default: {
@@ -137,6 +156,7 @@ export default function RoomClient({
   const [passing, setPassing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [readyError, setReadyError] = useState<string | null>(null);
   const [autoJoined, setAutoJoined] = useState(false);
   const [draftReady, setDraftReady] = useState(false);
   const [myMoods, setMyMoods] = useState<Mood[]>(["any"]);
@@ -304,6 +324,7 @@ export default function RoomClient({
   const handleReady = async (ready: boolean) => {
     if (!playerId || !code) return;
     setReadying(true);
+    setReadyError(null);
     try {
       await setPicksReadyApi(
         code,
@@ -311,8 +332,12 @@ export default function RoomClient({
         ready,
         ready ? myMoods : undefined
       );
-    } catch {
-      // Server recovers silently; refresh shows the real state.
+    } catch (err) {
+      setReadyError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't update ready. Try again."
+      );
     } finally {
       await refresh();
       setReadying(false);
@@ -408,6 +433,7 @@ export default function RoomClient({
         <RoomStatus
           kind={roomStatusKind(error)}
           code={code}
+          detail={error}
           onRetry={() => {
             void refresh();
           }}
@@ -478,20 +504,25 @@ export default function RoomClient({
             <button
               type="button"
               onClick={handleStart}
-              disabled={starting || room.players.length < 2}
+              disabled={
+                starting ||
+                room.players.length < (room.expectedPlayers <= 1 ? 1 : 2)
+              }
               className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer"
             >
               {starting
                 ? "Starting..."
-                : room.players.length < 2
-                  ? "Need at least one more person"
-                  : room.players.length < room.expectedPlayers
-                    ? `Start with ${room.players.length} of ${room.expectedPlayers}`
-                    : "Everyone's here. Start"}
+                : room.expectedPlayers <= 1
+                  ? "Start exploring"
+                  : room.players.length < 2
+                    ? "Need at least one more person"
+                    : room.players.length < room.expectedPlayers
+                      ? `Start with ${room.players.length} of ${room.expectedPlayers}`
+                      : "Everyone's here. Start"}
             </button>
           ) : (
             <p className="text-center text-stone-500">
-              {room.players.length >= 2
+              {room.players.length >= 2 || room.expectedPlayers <= 1
                 ? `Waiting for ${
                     room.players.find((p) => p.isHost)?.name ?? "the host"
                   } to start…`
@@ -646,14 +677,21 @@ export default function RoomClient({
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => handleReady(true)}
-              disabled={readying}
-              className="w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
-            >
-              {readying ? "Saving..." : "I'm ready"}
-            </button>
+            <div className="space-y-3">
+              {readyError && (
+                <p className="text-center text-sm text-red-300/90" role="alert">
+                  {readyError}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => handleReady(true)}
+                disabled={readying}
+                className="w-full cursor-pointer rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40"
+              >
+                {readying ? "Saving..." : "I'm ready"}
+              </button>
+            </div>
           )}
         </div>
       </CinemaShell>

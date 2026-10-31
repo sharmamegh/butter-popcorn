@@ -43,7 +43,8 @@ This unlocks a catalog of thousands of popular films, posters, mood filtering, a
    - Easiest: Vercel dashboard → Project → Storage → create/connect Upstash Redis
    - The app reads `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or Marketplace names like `REDIS_KV_REST_API_URL` + `REDIS_KV_REST_API_TOKEN`
    - Redeploy after the store is connected
-   - Without Redis, create-room is blocked on Vercel (in-memory rooms vanish between requests and look like 404s)
+   - If create-room fails with a storage message, the Redis host is likely deleted or unreachable: reconnect or recreate the store, update env vars, redeploy
+   - Without working Redis, group rooms are blocked on Vercel; **Just me** / Top recommends still works without Redis
 
 ```bash
 npm run dev
@@ -53,7 +54,9 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Features
 
-- TMDB-powered catalog with mood filters (comedy, horror, sci-fi, etc.)
+- TMDB-powered catalog with mood filters (comedy, horror, sci-fi, Bollywood, etc.)
+- Diversified suggestions so quieter genres and Bollywood still show up, not only global top hits
+- Solo Top recommends mode (no Redis needed): mood-based mixed slate, rank, lock in
 - Custom movie search: everyone in the lobby adds movies they want; the whole group ranks that mix
 - QR code + invite link for easy joining
 - Drag-and-drop ranking on mobile and desktop

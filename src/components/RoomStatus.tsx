@@ -1,6 +1,11 @@
 import Link from "next/link";
 
-type RoomStatusKind = "loading" | "missing" | "offline" | "error";
+type RoomStatusKind =
+  | "loading"
+  | "missing"
+  | "offline"
+  | "error"
+  | "storage";
 
 const COPY: Record<
   Exclude<RoomStatusKind, "loading">,
@@ -15,18 +20,25 @@ const COPY: Record<
     body: "Check your connection, then try again. Or head home and start over.",
   },
   error: {
-    title: "Something went sideways",
-    body: "We couldn’t load that room. Try again in a moment, or start a new one.",
+    title: "Room didn’t load",
+    body: "Something glitched while opening this room. Try again in a moment.",
+  },
+  storage: {
+    title: "Shared rooms are offline",
+    body: "This site can’t save group rooms right now. Top recommends still works from home.",
   },
 };
 
 export function RoomStatus({
   kind,
   code,
+  detail,
   onRetry,
 }: {
   kind: RoomStatusKind;
   code?: string;
+  /** Optional server message that clarifies the specific failure. */
+  detail?: string | null;
   onRetry?: () => void;
 }) {
   if (kind === "loading") {
@@ -44,13 +56,16 @@ export function RoomStatus({
   }
 
   const copy = COPY[kind];
-  const canRetry = (kind === "offline" || kind === "error") && onRetry;
+  const canRetry =
+    (kind === "offline" || kind === "error" || kind === "storage") && onRetry;
+  const body =
+    detail && detail !== copy.body && kind !== "missing" ? detail : copy.body;
 
   return (
     <div className="w-full max-w-md space-y-6 text-center">
       <div className="space-y-2">
         <h2 className="text-2xl font-bold text-stone-100">{copy.title}</h2>
-        <p className="text-stone-400 leading-relaxed">{copy.body}</p>
+        <p className="text-stone-400 leading-relaxed">{body}</p>
         {code && kind === "missing" && (
           <p className="pt-1 font-mono text-sm tracking-[0.25em] text-stone-600">
             {code}
@@ -82,6 +97,13 @@ export function RoomStatus({
             className="block w-full py-2 text-sm text-stone-500 transition-colors hover:text-butter-400"
           >
             Enter a different code
+          </Link>
+        ) : kind === "storage" ? (
+          <Link
+            href="/explore"
+            className="block w-full py-2 text-sm text-stone-500 transition-colors hover:text-butter-400"
+          >
+            Try Top recommends instead
           </Link>
         ) : (
           <Link

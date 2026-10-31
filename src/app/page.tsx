@@ -22,17 +22,30 @@ export default function Home() {
     }
   }, []);
 
+  const isSolo = players === 1;
+
   const handleCreate = async () => {
     if (!name.trim()) return;
     setLoading(true);
     setCreateError(null);
+
+    // Solo: Top recommends — no shared room needed.
+    if (isSolo) {
+      router.push(
+        `/explore?name=${encodeURIComponent(name.trim())}`
+      );
+      return;
+    }
+
     try {
       const data = await createRoom(name.trim(), players);
       savePlayer(data.code, data.playerId, name.trim());
       router.push(`/room/${data.code}`);
     } catch (err) {
       setCreateError(
-        err instanceof Error ? err.message : "Couldn't create a room. Try again."
+        err instanceof Error
+          ? err.message
+          : "Couldn't open a new room. Try again."
       );
       setLoading(false);
     }
@@ -71,7 +84,7 @@ export default function Home() {
           <>
             <div className="block">
               <span className="text-sm text-stone-400 mb-1.5 block">
-                How many people in this room?
+                How many people tonight?
               </span>
               <div
                 className="flex flex-wrap gap-2"
@@ -93,16 +106,33 @@ export default function Home() {
                       }
                     `}
                   >
-                    {n}
+                    {n === 1 ? "Just me" : n}
                   </button>
                 ))}
               </div>
+              {isSolo && (
+                <p className="mt-2 text-xs text-stone-500">
+                  Top recommends: pick a mood, rank a mixed slate, lock in a
+                  winner.
+                </p>
+              )}
             </div>
 
             {createError && (
-              <p className="text-sm text-red-300/90 text-center" role="alert">
-                {createError}
-              </p>
+              <div className="space-y-2 text-center" role="alert">
+                <p className="text-sm text-red-300/90">{createError}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const params = new URLSearchParams();
+                    if (name.trim()) params.set("name", name.trim());
+                    router.push(`/explore?${params.toString()}`);
+                  }}
+                  className="text-sm text-butter-400 hover:text-butter-300 cursor-pointer"
+                >
+                  Try Top recommends instead
+                </button>
+              </div>
             )}
 
             <button
@@ -111,7 +141,13 @@ export default function Home() {
               disabled={!name.trim() || loading}
               className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
-              {loading ? "Creating..." : "Start a room 🍿"}
+              {loading
+                ? isSolo
+                  ? "Opening…"
+                  : "Creating..."
+                : isSolo
+                  ? "Top recommends 🍿"
+                  : "Start a room 🍿"}
             </button>
 
             <button

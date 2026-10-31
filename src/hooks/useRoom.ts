@@ -102,7 +102,9 @@ export function useRoom(code: string) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async (): Promise<"ok" | "missing" | "error"> => {
+  const refresh = useCallback(async (): Promise<
+    "ok" | "missing" | "error" | "storage"
+  > => {
     if (!code) {
       setLoading(true);
       setError(null);
@@ -113,10 +115,26 @@ export function useRoom(code: string) {
     try {
       const res = await fetch(`/api/rooms/${code}`);
       if (!res.ok) {
-        const missing = res.status === 404;
-        setError(missing ? "Room not found" : "Couldn't load room");
+        let message = "Couldn't load this room right now.";
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data.error) message = data.error;
+        } catch {
+          // keep default
+        }
+        if (res.status === 404) {
+          setError(message);
+          setRoom(null);
+          return "missing";
+        }
+        if (res.status === 503) {
+          setError(message);
+          setRoom(null);
+          return "storage";
+        }
+        setError(message);
         setRoom(null);
-        return missing ? "missing" : "error";
+        return "error";
       }
       const data = await res.json();
       setRoom(data.room);
@@ -169,15 +187,25 @@ export function useRoom(code: string) {
 
 export async function createRoom(
   hostName: string,
-  expectedPlayers: number
+  expectedPlayers: number,
+  options: { discoveryMode?: "auto" | "blank" } = {}
 ) {
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hostName, expectedPlayers }),
+    body: JSON.stringify({
+      hostName,
+      expectedPlayers,
+      discoveryMode: options.discoveryMode ?? "auto",
+    }),
   });
   if (!res.ok) {
-    let message = "Failed to create room";
+    let message =
+      res.status === 503
+        ? "Shared rooms can't save on this site right now."
+        : res.status >= 500
+          ? "Couldn't open a new room. Try again in a moment."
+          : "Couldn't open a new room.";
     try {
       const data = (await res.json()) as { error?: string };
       if (data.error) message = data.error;
@@ -199,7 +227,12 @@ export async function roomAction(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    let message = "Request failed";
+    let message =
+      res.status === 404
+        ? "That room isn't active anymore."
+        : res.status === 503
+          ? "Shared rooms can't save right now."
+          : "That step didn't go through.";
     try {
       const data = (await res.json()) as { error?: string };
       if (data.error) message = data.error;
