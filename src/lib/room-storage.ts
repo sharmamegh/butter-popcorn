@@ -236,69 +236,93 @@ async function probeRedis(
   }
 }
 
-type StorageMode = "upstash" | "file" | "memory";
+export type StorageMode = "upstash" | "file" | "memory";
 type StorageInit = {
   storage: RoomStorage;
   mode: StorageMode;
-  /** Credentials exist but Redis did not respond. */
+  /** Credentials exist but Redis did not respond to the boot probe. */
   redisUnreachable: boolean;
 };
+
+/**
+ * Pick a storage backend. Redis credentials always mean Redis — a failed
+ * boot ping must not switch this process to empty memory/file storage, or
+ * live rooms 404 until the instance is recycled.
+ */
+export function chooseStorageMode(input: {
+  hasRedisCreds: boolean;
+  redisProbeOk: boolean;
+  isVercel: boolean;
+}): { mode: StorageMode; redisUnreachable: boolean } {
+  if (input.hasRedisCreds) {
+    return { mode: "upstash", redisUnreachable: !input.redisProbeOk };
+  }
+  if (input.isVercel) {
+    return { mode: "memory", redisUnreachable: false };
+  }
+  return { mode: "file", redisUnreachable: false };
+}
 
 let storageInit: StorageInit | null = null;
 let storageInitPromise: Promise<StorageInit> | null = null;
 
 async function createStorage(): Promise<StorageInit> {
   const creds = redisRestCredentials();
+  const isVercel = Boolean(process.env.VERCEL);
 
   if (creds) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Redis } = require("@upstash/redis") as typeof import("@upstash/redis");
     const redis = new Redis(creds);
     const ok = await probeRedis(redis);
-    if (ok) {
-      return {
-        storage: new UpstashStorage(redis),
-        mode: "upstash",
-        redisUnreachable: false,
-      };
+    const choice = chooseStorageMode({
+      hasRedisCreds: true,
+      redisProbeOk: ok,
+      isVercel,
+    });
+    if (!ok) {
+      console.error(
+        "[butter-popcorn] Redis REST host did not respond to ping. Still using Redis so existing rooms are not served from empty fallback storage."
+      );
     }
-    // Dead Marketplace URL would otherwise throw opaque 500s on every create.
-    console.error(
-      "[butter-popcorn] Falling back because Redis REST host is unreachable. Reconnect Upstash in Vercel Storage."
-    );
-    if (process.env.VERCEL) {
+    return {
+      storage: new UpstashStorage(redis),
+      mode: choice.mode,
+      redisUnreachable: choice.redisUnreachable,
+    };
+  }
+
+  const choice = chooseStorageMode({
+    hasRedisCreds: false,
+    redisProbeOk: false,
+    isVercel,
+  });
+
+  switch (choice.mode) {
+    case "memory":
+      // Vercel filesystem is read-only / ephemeral per instance.
+      console.error(
+        "[butter-popcorn] Redis REST URL/token missing (UPSTASH_REDIS_* or REDIS_KV_REST_API_*). Rooms will not persist across serverless instances."
+      );
       return {
         storage: new MemoryStorage(),
         mode: "memory",
-        redisUnreachable: true,
+        redisUnreachable: false,
       };
+    case "file":
+      // Local file store survives Next.js HMR.
+      return {
+        storage: new FileStorage(path.join(process.cwd(), ".data", "rooms")),
+        mode: "file",
+        redisUnreachable: false,
+      };
+    case "upstash":
+      throw new Error("Redis credentials required for upstash storage");
+    default: {
+      const _exhaustive: never = choice.mode;
+      throw new Error(`Unexpected storage mode: ${_exhaustive}`);
     }
-    return {
-      storage: new FileStorage(path.join(process.cwd(), ".data", "rooms")),
-      mode: "file",
-      redisUnreachable: true,
-    };
   }
-
-  // Vercel filesystem is read-only / ephemeral per instance.
-  // Memory "works" for a single warm lambda and then rooms vanish → 404s.
-  if (process.env.VERCEL) {
-    console.error(
-      "[butter-popcorn] Redis REST URL/token missing (UPSTASH_REDIS_* or REDIS_KV_REST_API_*). Rooms will not persist across serverless instances."
-    );
-    return {
-      storage: new MemoryStorage(),
-      mode: "memory",
-      redisUnreachable: false,
-    };
-  }
-
-  // Local file store survives Next.js HMR.
-  return {
-    storage: new FileStorage(path.join(process.cwd(), ".data", "rooms")),
-    mode: "file",
-    redisUnreachable: false,
-  };
 }
 
 async function ensureStorage(): Promise<StorageInit> {
