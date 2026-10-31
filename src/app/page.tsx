@@ -25,17 +25,17 @@ export default function Home() {
   const isSolo = players === 1;
 
   const handleCreate = async () => {
-    if (!name.trim()) return;
-    setLoading(true);
     setCreateError(null);
 
-    // Solo: Top recommends; no shared room needed.
+    // Solo: Top recommends; no name or shared room needed.
     if (isSolo) {
-      router.push(
-        `/explore?name=${encodeURIComponent(name.trim())}`
-      );
+      setLoading(true);
+      router.push("/explore");
       return;
     }
+
+    if (!name.trim()) return;
+    setLoading(true);
 
     try {
       const data = await createRoom(name.trim(), players);
@@ -69,17 +69,6 @@ export default function Home() {
       </header>
 
       <div className="w-full max-w-md space-y-4 rounded-2xl border border-cinema-600 bg-cinema-800/60 p-6">
-        <label className="block">
-          <span className="text-sm text-stone-400 mb-1.5 block">Your name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Me"
-            className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-lg text-stone-100 placeholder:text-stone-600 focus:border-butter-400 focus:outline-none"
-          />
-        </label>
-
         {!showJoin ? (
           <>
             <div className="block space-y-3">
@@ -133,16 +122,27 @@ export default function Home() {
               </div>
             </div>
 
+            {!isSolo && (
+              <label className="block">
+                <span className="text-sm text-stone-400 mb-1.5 block">
+                  Your name
+                </span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Me"
+                  className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-lg text-stone-100 placeholder:text-stone-600 focus:border-butter-400 focus:outline-none"
+                />
+              </label>
+            )}
+
             {createError && (
               <div className="space-y-2 text-center" role="alert">
                 <p className="text-sm text-red-300/90">{createError}</p>
                 <button
                   type="button"
-                  onClick={() => {
-                    const params = new URLSearchParams();
-                    if (name.trim()) params.set("name", name.trim());
-                    router.push(`/explore?${params.toString()}`);
-                  }}
+                  onClick={() => router.push("/explore")}
                   className="text-sm text-butter-400 hover:text-butter-300 cursor-pointer"
                 >
                   Try Top recommends instead
@@ -153,7 +153,7 @@ export default function Home() {
             <button
               type="button"
               onClick={handleCreate}
-              disabled={!name.trim() || loading}
+              disabled={loading || (!isSolo && !name.trim())}
               className="w-full rounded-2xl bg-gradient-to-b from-butter-300 to-butter-500 py-4 text-xl font-bold text-cinema-900 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               {loading
@@ -175,6 +175,17 @@ export default function Home() {
           </>
         ) : (
           <>
+            <label className="block">
+              <span className="text-sm text-stone-400 mb-1.5 block">Your name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Me"
+                className="w-full rounded-xl border border-cinema-600 bg-cinema-900 px-4 py-3 text-lg text-stone-100 placeholder:text-stone-600 focus:border-butter-400 focus:outline-none"
+              />
+            </label>
+
             <label className="block">
               <span className="text-sm text-stone-400 mb-1.5 block">
                 Room code
