@@ -82,40 +82,55 @@ export default function Home() {
 
         {!showJoin ? (
           <>
-            <div className="block">
-              <span className="text-sm text-stone-400 mb-1.5 block">
-                How many people tonight?
-              </span>
-              <div
-                className="flex flex-wrap gap-2"
-                role="group"
-                aria-label="Room size"
+            <div className="block space-y-3">
+              <button
+                type="button"
+                onClick={() => setPlayers(1)}
+                aria-pressed={isSolo}
+                className={`
+                  w-full rounded-xl px-4 py-3 text-sm font-medium border cursor-pointer text-left
+                  ${
+                    isSolo
+                      ? "border-butter-400 bg-butter-400/15 text-butter-200"
+                      : "border-cinema-600 text-stone-400 hover:border-butter-500/40"
+                  }
+                `}
               >
-                {PLAYER_SIZE_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setPlayers(n)}
-                    aria-pressed={players === n}
-                    className={`
-                      flex-1 min-w-[3rem] rounded-xl py-2.5 text-sm font-medium border cursor-pointer
-                      ${
-                        players === n
-                          ? "border-butter-400 bg-butter-400/15 text-butter-200"
-                          : "border-cinema-600 text-stone-500 hover:border-butter-500/40"
-                      }
-                    `}
-                  >
-                    {n === 1 ? "Just me" : n}
-                  </button>
-                ))}
+                Just me
+                <span className="mt-0.5 block text-xs font-normal text-stone-500">
+                  Top recommends — pick a mood, rank, lock in a winner
+                </span>
+              </button>
+
+              <div>
+                <span className="text-sm text-stone-400 mb-1.5 block">
+                  Or a group of…
+                </span>
+                <div
+                  className="grid grid-cols-7 gap-2"
+                  role="group"
+                  aria-label="Group size"
+                >
+                  {PLAYER_SIZE_OPTIONS.filter((n) => n >= 2).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setPlayers(n)}
+                      aria-pressed={players === n}
+                      className={`
+                        rounded-xl py-2.5 text-sm font-medium border cursor-pointer
+                        ${
+                          players === n
+                            ? "border-butter-400 bg-butter-400/15 text-butter-200"
+                            : "border-cinema-600 text-stone-500 hover:border-butter-500/40"
+                        }
+                      `}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
-              {isSolo && (
-                <p className="mt-2 text-xs text-stone-500">
-                  Top recommends: pick a mood, rank a mixed slate, lock in a
-                  winner.
-                </p>
-              )}
             </div>
 
             {createError && (
