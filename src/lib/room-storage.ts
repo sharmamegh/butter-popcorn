@@ -1,14 +1,21 @@
 import { promises as fs } from "fs";
 import path from "path";
+import { ExclusiveLock, sleep } from "@/lib/room-lock";
 import type { Room } from "@/lib/room-types";
 
 const TTL_SECONDS = 6 * 60 * 60;
+const LOCK_WAIT_MS = 8000;
+const LOCK_TTL_MS = 15000;
+const RELEASE_LOCK_SCRIPT =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 export interface RoomStorage {
   get(code: string): Promise<Room | null>;
   set(room: Room): Promise<void>;
   delete(code: string): Promise<void>;
   prune(): Promise<void>;
+  /** Run `fn` with exclusive access to this room's record. Not reentrant. */
+  runExclusive<T>(code: string, fn: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -18,6 +25,7 @@ export interface RoomStorage {
 class FileStorage implements RoomStorage {
   private dir: string;
   private writeQueues = new Map<string, Promise<void>>();
+  private locks = new ExclusiveLock();
 
   constructor(dir: string) {
     this.dir = dir;
@@ -93,18 +101,24 @@ class FileStorage implements RoomStorage {
       // nothing to prune
     }
   }
+
+  async runExclusive<T>(code: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.run(code, fn);
+  }
 }
 
 /** In-process store. Local fallback only — never reliable across Vercel instances. */
 class MemoryStorage implements RoomStorage {
   private rooms = new Map<string, Room>();
+  private locks = new ExclusiveLock();
 
   async get(code: string): Promise<Room | null> {
-    return this.rooms.get(code.toUpperCase()) ?? null;
+    const room = this.rooms.get(code.toUpperCase());
+    return room ? structuredClone(room) : null;
   }
 
   async set(room: Room): Promise<void> {
-    this.rooms.set(room.code.toUpperCase(), room);
+    this.rooms.set(room.code.toUpperCase(), structuredClone(room));
   }
 
   async delete(code: string): Promise<void> {
@@ -117,10 +131,15 @@ class MemoryStorage implements RoomStorage {
       if (room.createdAt < cutoff) this.rooms.delete(code);
     }
   }
+
+  async runExclusive<T>(code: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.run(code, fn);
+  }
 }
 
 class UpstashStorage implements RoomStorage {
   private redis: import("@upstash/redis").Redis;
+  private locks = new ExclusiveLock();
 
   constructor(redis: import("@upstash/redis").Redis) {
     this.redis = redis;
@@ -128,6 +147,10 @@ class UpstashStorage implements RoomStorage {
 
   private key(code: string) {
     return `room:${code.toUpperCase()}`;
+  }
+
+  private lockKey(code: string) {
+    return `lock:room:${code.toUpperCase()}`;
   }
 
   async get(code: string): Promise<Room | null> {
@@ -145,6 +168,41 @@ class UpstashStorage implements RoomStorage {
 
   async prune(): Promise<void> {
     // Upstash TTL handles expiry
+  }
+
+  async runExclusive<T>(code: string, fn: () => Promise<T>): Promise<T> {
+    return this.locks.run(code, async () => {
+      const token = crypto.randomUUID();
+      const redisKey = this.lockKey(code);
+      await this.acquireRedisLock(redisKey, token);
+      try {
+        return await fn();
+      } finally {
+        await this.releaseRedisLock(redisKey, token);
+      }
+    });
+  }
+
+  private async acquireRedisLock(lockKey: string, token: string) {
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    while (Date.now() < deadline) {
+      const acquired = await this.redis.set(lockKey, token, {
+        nx: true,
+        px: LOCK_TTL_MS,
+      });
+      if (acquired) return;
+      await sleep(25 + Math.random() * 40);
+    }
+    throw new Error("Room is busy, try again");
+  }
+
+  private async releaseRedisLock(lockKey: string, token: string) {
+    try {
+      await this.redis.eval(RELEASE_LOCK_SCRIPT, [lockKey], [token]);
+    } catch {
+      const current = await this.redis.get<string>(lockKey);
+      if (current === token) await this.redis.del(lockKey);
+    }
   }
 }
 
@@ -279,4 +337,22 @@ export async function storageStatus(): Promise<{
     persistent: init.mode === "upstash" || init.mode === "file",
     redisUnreachable: init.redisUnreachable,
   };
+}
+
+/** Test-only: swap the process-wide storage singleton. */
+export function installStorageForTests(impl: RoomStorage) {
+  storageInit = {
+    storage: impl,
+    mode: "memory",
+    redisUnreachable: false,
+  };
+  storageInitPromise = Promise.resolve(storageInit);
+}
+
+export function createFileStorage(dir: string): RoomStorage {
+  return new FileStorage(dir);
+}
+
+export function createMemoryStorage(): RoomStorage {
+  return new MemoryStorage();
 }

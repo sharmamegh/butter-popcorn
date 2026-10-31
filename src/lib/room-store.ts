@@ -129,10 +129,33 @@ export async function createRoom(
   return room;
 }
 
-export async function getRoom(code: string): Promise<Room | null> {
+/**
+ * Load + maybe settle a pass. Must only be called while holding the room lock.
+ */
+async function loadRoomUnlocked(code: string): Promise<Room | null> {
   const room = await (await getStorage()).get(code);
   if (!room) return null;
-  return settlePassIfDue(room);
+  return settlePassIfDueUnlocked(room);
+}
+
+/**
+ * Serialize a read-modify-write on one room. `fn` must not call getRoom / mutateRoom.
+ */
+async function mutateRoom(
+  code: string,
+  fn: (room: Room) => Promise<Room | null>
+): Promise<Room | null> {
+  const storage = await getStorage();
+  return storage.runExclusive(code, async () => {
+    const room = await loadRoomUnlocked(code);
+    if (!room) return null;
+    return fn(room);
+  });
+}
+
+export async function getRoom(code: string): Promise<Room | null> {
+  const storage = await getStorage();
+  return storage.runExclusive(code, () => loadRoomUnlocked(code));
 }
 
 export async function saveRoom(room: Room): Promise<void> {
@@ -205,7 +228,7 @@ async function finishPass(room: Room): Promise<Room> {
   return room;
 }
 
-async function settlePassIfDue(room: Room): Promise<Room> {
+async function settlePassIfDueUnlocked(room: Room): Promise<Room> {
   if (
     room.status === "ranking" &&
     room.passDeadline != null &&
@@ -216,55 +239,68 @@ async function settlePassIfDue(room: Room): Promise<Room> {
   return room;
 }
 
+function playersWithName(room: Room, name: string): RoomPlayer[] {
+  const needle = name.toLowerCase();
+  return room.players.filter((p) => p.name.toLowerCase() === needle);
+}
+
 /**
  * Join a lobby, or reattach if you're already in the room (any phase).
- * Reattach by playerId or matching name so lost tabs / devices can continue.
+ * Reattach by playerId always. Same-name reattach is only for a unique
+ * match after the lobby — two people named Alex must not share a slot.
  */
 export async function joinRoom(
   code: string,
   name: string,
   opts: { playerId?: string } = {}
 ): Promise<{ room: Room; playerId: string } | null> {
-  const room = await getRoom(code);
-  if (!room) return null;
+  let playerId = "";
+  const room = await mutateRoom(code, async (current) => {
+    const trimmed = name.trim() || "Guest";
 
-  const trimmed = name.trim() || "Guest";
-
-  if (opts.playerId) {
-    const existing = room.players.find((p) => p.id === opts.playerId);
-    if (existing) {
-      if (trimmed && existing.name !== trimmed) existing.name = trimmed;
-      await saveRoom(room);
-      return { room, playerId: existing.id };
+    if (opts.playerId) {
+      const existing = current.players.find((p) => p.id === opts.playerId);
+      if (existing) {
+        if (trimmed && existing.name !== trimmed) existing.name = trimmed;
+        playerId = existing.id;
+        await saveRoom(current);
+        return current;
+      }
     }
-  }
 
-  const byName = room.players.find(
-    (p) => p.name.toLowerCase() === trimmed.toLowerCase()
-  );
-  if (byName) {
-    return { room, playerId: byName.id };
-  }
+    // After the night starts, a lost tab without localStorage can rejoin by
+    // name only when that name uniquely identifies one player.
+    if (current.status !== "lobby") {
+      const matches = playersWithName(current, trimmed);
+      if (matches.length === 1) {
+        playerId = matches[0].id;
+        return current;
+      }
+      return null;
+    }
 
-  if (room.status !== "lobby") return null;
-  if (room.players.length >= room.expectedPlayers) return null;
+    if (current.players.length >= current.expectedPlayers) return null;
 
-  const playerId = generatePlayerId();
-  const player: RoomPlayer = {
-    id: playerId,
-    name: trimmed || `Guest ${room.players.length + 1}`,
-    isHost: false,
-    picksReady: false,
-    submitted: false,
-    moods: ["any"],
-    rankings: null,
-    pickedIds: null,
-    vetoUsed: false,
-    vetoResponse: "pending",
-  };
+    playerId = generatePlayerId();
+    const player: RoomPlayer = {
+      id: playerId,
+      name: trimmed || `Guest ${current.players.length + 1}`,
+      isHost: false,
+      picksReady: false,
+      submitted: false,
+      moods: ["any"],
+      rankings: null,
+      pickedIds: null,
+      vetoUsed: false,
+      vetoResponse: "pending",
+    };
 
-  room.players.push(player);
-  await saveRoom(room);
+    current.players.push(player);
+    await saveRoom(current);
+    return current;
+  });
+
+  if (!room || !playerId) return null;
   return { room, playerId };
 }
 
@@ -273,25 +309,26 @@ export async function startPicking(
   code: string,
   playerId: string
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.hostId !== playerId || room.status !== "lobby") return null;
-  // Solo rooms (expectedPlayers === 1) can start alone; groups need 2+.
-  const minToStart = room.expectedPlayers <= 1 ? 1 : 2;
-  if (room.players.length < minToStart) return null;
+  return mutateRoom(code, async (room) => {
+    if (room.hostId !== playerId || room.status !== "lobby") return null;
+    // Solo rooms (expectedPlayers === 1) can start alone; groups need 2+.
+    const minToStart = room.expectedPlayers <= 1 ? 1 : 2;
+    if (room.players.length < minToStart) return null;
 
-  room.status = "picking";
-  room.customPicks = roomCustomPicks(room);
-  room.passDeadline = null;
-  room.passFavorites = {};
-  for (const player of room.players) {
-    player.picksReady = false;
-    player.submitted = false;
-    player.rankings = null;
-    player.pickedIds = null;
-  }
+    room.status = "picking";
+    room.customPicks = roomCustomPicks(room);
+    room.passDeadline = null;
+    room.passFavorites = {};
+    for (const player of room.players) {
+      player.picksReady = false;
+      player.submitted = false;
+      player.rankings = null;
+      player.pickedIds = null;
+    }
 
-  await saveRoom(room);
-  return room;
+    await saveRoom(room);
+    return room;
+  });
 }
 
 export async function addCustomMovie(
@@ -300,29 +337,30 @@ export async function addCustomMovie(
   tmdbId: number,
   meta?: { title?: string; year?: number; posterUrl?: string | null }
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "picking") return null;
-  if (!room.players.some((p) => p.id === playerId)) return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "picking") return null;
+    if (!room.players.some((p) => p.id === playerId)) return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player || player.picksReady) return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player || player.picksReady) return null;
 
-  room.customPicks = roomCustomPicks(room);
-  if (room.customPicks.some((p) => p.tmdbId === tmdbId)) return room;
+    room.customPicks = roomCustomPicks(room);
+    if (room.customPicks.some((p) => p.tmdbId === tmdbId)) return room;
 
-  const pick: CustomPick = {
-    tmdbId,
-    addedBy: playerId,
-    title: meta?.title?.trim() || `Movie ${tmdbId}`,
-    year: meta?.year ?? 0,
-    posterUrl: meta?.posterUrl ?? null,
-  };
+    const pick: CustomPick = {
+      tmdbId,
+      addedBy: playerId,
+      title: meta?.title?.trim() || `Movie ${tmdbId}`,
+      year: meta?.year ?? 0,
+      posterUrl: meta?.posterUrl ?? null,
+    };
 
-  room.customPicks.push(pick);
-  // Mix changed — anyone already ready should reconfirm.
-  clearReadyFlags(room);
-  await saveRoom(room);
-  return room;
+    room.customPicks.push(pick);
+    // Mix changed — anyone already ready should reconfirm.
+    clearReadyFlags(room);
+    await saveRoom(room);
+    return room;
+  });
 }
 
 export async function removeCustomMovie(
@@ -330,23 +368,24 @@ export async function removeCustomMovie(
   playerId: string,
   tmdbId: number
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "picking") return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "picking") return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) return null;
-  if (player.picksReady) return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player) return null;
+    if (player.picksReady) return null;
 
-  const isHost = room.hostId === playerId;
-  const picks = roomCustomPicks(room);
-  const target = picks.find((p) => p.tmdbId === tmdbId);
-  if (!target) return room;
-  if (!isHost && target.addedBy !== playerId) return null;
+    const isHost = room.hostId === playerId;
+    const picks = roomCustomPicks(room);
+    const target = picks.find((p) => p.tmdbId === tmdbId);
+    if (!target) return room;
+    if (!isHost && target.addedBy !== playerId) return null;
 
-  room.customPicks = picks.filter((p) => p.tmdbId !== tmdbId);
-  clearReadyFlags(room);
-  await saveRoom(room);
-  return room;
+    room.customPicks = picks.filter((p) => p.tmdbId !== tmdbId);
+    clearReadyFlags(room);
+    await saveRoom(room);
+    return room;
+  });
 }
 
 function roomFillsFromDiscovery(room: Room): boolean {
@@ -406,13 +445,8 @@ async function buildRoundMovies(room: Room, seed: string): Promise<Movie[]> {
   return movies;
 }
 
-async function beginRanking(room: Room): Promise<Room | null> {
+function applyBeginRanking(room: Room, seed: string, movies: Movie[]): void {
   room.moods = aggregatePlayerMoods(room.players);
-
-  const seed = `${room.code}-${Date.now()}`;
-  const movies = await buildRoundMovies(room, seed);
-  if (movies.length < 2) return null;
-
   room.seed = seed;
   room.movieIds = movies.map((m) => m.id);
   room.movies = moviesToRecord(movies);
@@ -429,9 +463,6 @@ async function beginRanking(room: Room): Promise<Room | null> {
     player.pickedIds = null;
     player.vetoResponse = "pending";
   }
-
-  await saveRoom(room);
-  return room;
 }
 
 /** Update your mood picks while still building the list. */
@@ -440,16 +471,17 @@ export async function setPlayerMoods(
   playerId: string,
   moods: Mood[]
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "picking") return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "picking") return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player || player.picksReady) return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player || player.picksReady) return null;
 
-  player.moods = normalizeMoods(moods);
-  room.moods = aggregatePlayerMoods(room.players);
-  await saveRoom(room);
-  return room;
+    player.moods = normalizeMoods(moods);
+    room.moods = aggregatePlayerMoods(room.players);
+    await saveRoom(room);
+    return room;
+  });
 }
 
 /** Mark yourself ready. When everyone is ready, ranking starts automatically. */
@@ -459,45 +491,90 @@ export async function setPicksReady(
   ready: boolean,
   moods?: Mood[]
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "picking") return null;
+  let startingSlate = false;
+  const prepared = await mutateRoom(code, async (room) => {
+    if (room.status !== "picking") return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player) return null;
 
-  if (ready && moods !== undefined) {
-    player.moods = normalizeMoods(moods);
-  }
+    if (ready && moods !== undefined) {
+      player.moods = normalizeMoods(moods);
+    }
 
-  player.picksReady = ready;
-  room.moods = aggregatePlayerMoods(room.players);
+    player.picksReady = ready;
+    room.moods = aggregatePlayerMoods(room.players);
 
-  if (!(ready && room.players.every((p) => p.picksReady))) {
-    await saveRoom(room);
+    // Don't persist "everyone is ready" until the slate is applied.
+    // Saving first left rooms stuck in picking after a timeout/crash mid-TMDB:
+    // every client showed "waiting on the others" and nobody re-triggered the build.
+    startingSlate = Boolean(ready && room.players.every((p) => p.picksReady));
+    if (!startingSlate) {
+      await saveRoom(room);
+    }
     return room;
+  });
+
+  if (!prepared) return null;
+  if (!startingSlate) {
+    return prepared;
   }
 
   // Blank slate needs a real mix before ranking can start.
   if (
-    room.discoveryMode === "blank" &&
-    uniqueCustomIds(room).length < 2
+    prepared.discoveryMode === "blank" &&
+    uniqueCustomIds(prepared).length < 2
   ) {
-    clearReadyFlags(room);
-    await saveRoom(room);
-    return room;
+    return mutateRoom(code, async (room) => {
+      clearReadyFlags(room);
+      await saveRoom(room);
+      return room;
+    });
   }
 
-  // Everyone ready — transition. Never leave the room stuck with all-ready.
+  // Fetch the slate outside the lock so other players aren't blocked on TMDB.
+  const seed = `${prepared.code}-${Date.now()}`;
+  let movies: Movie[] = [];
   try {
-    const started = await beginRanking(room);
-    if (started) return started;
+    movies = await buildRoundMovies(prepared, seed);
   } catch (err) {
     console.error("[butter-popcorn] beginRanking threw", err);
   }
 
-  clearReadyFlags(room);
-  await saveRoom(room);
-  return room;
+  try {
+    return await mutateRoom(code, async (room) => {
+      if (room.status !== "picking") return room;
+
+      const player = room.players.find((p) => p.id === playerId);
+      if (!player) return room;
+      if (moods !== undefined) {
+        player.moods = normalizeMoods(moods);
+      }
+      player.picksReady = true;
+      room.moods = aggregatePlayerMoods(room.players);
+
+      if (!room.players.every((p) => p.picksReady)) {
+        await saveRoom(room);
+        return room;
+      }
+
+      // Mix may have changed while TMDB was in flight — keep current customs.
+      const slate = ensureCustomsOnSlate(room, movies);
+
+      if (slate.length < 2) {
+        clearReadyFlags(room);
+        await saveRoom(room);
+        return room;
+      }
+
+      applyBeginRanking(room, seed, slate);
+      await saveRoom(room);
+      return room;
+    });
+  } catch (err) {
+    console.error("[butter-popcorn] apply ranking failed", err);
+    return getRoom(code);
+  }
 }
 
 export async function submitRankings(
@@ -505,43 +582,44 @@ export async function submitRankings(
   playerId: string,
   rankings: string[]
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "ranking") return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "ranking") return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player) return null;
 
-  const completed = completeRankings(rankings, room.movieIds);
-  if (!completed) return null;
+    const completed = completeRankings(rankings, room.movieIds);
+    if (!completed) return null;
 
-  player.pickedIds = rankings;
-  player.rankings = completed;
-  player.submitted = true;
+    player.pickedIds = rankings;
+    player.rankings = completed;
+    player.submitted = true;
 
-  if (room.players.every((p) => p.submitted)) {
-    const result = calculateMatch(room);
-    if (result) {
-      room.result = result;
-      room.status = "revealed";
-      for (const p of room.players) {
-        p.vetoResponse = "pending";
-      }
-    } else {
-      // Should be unreachable after match hardening — still unstick if needed.
-      clearReadyFlags(room);
-      room.status = "picking";
-      room.passDeadline = null;
-      room.passFavorites = {};
-      for (const p of room.players) {
-        p.submitted = false;
-        p.rankings = null;
-        p.pickedIds = null;
+    if (room.players.every((p) => p.submitted)) {
+      const result = calculateMatch(room);
+      if (result) {
+        room.result = result;
+        room.status = "revealed";
+        for (const p of room.players) {
+          p.vetoResponse = "pending";
+        }
+      } else {
+        // Should be unreachable after match hardening — still unstick if needed.
+        clearReadyFlags(room);
+        room.status = "picking";
+        room.passDeadline = null;
+        room.passFavorites = {};
+        for (const p of room.players) {
+          p.submitted = false;
+          p.rankings = null;
+          p.pickedIds = null;
+        }
       }
     }
-  }
 
-  await saveRoom(room);
-  return room;
+    await saveRoom(room);
+    return room;
+  });
 }
 
 export async function submitVetoResponse(
@@ -549,54 +627,58 @@ export async function submitVetoResponse(
   playerId: string,
   response: "accept" | "veto"
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.status !== "revealed" || !room.result) return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "revealed" || !room.result) return null;
 
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player || player.vetoResponse !== "pending") return null;
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player || player.vetoResponse !== "pending") return null;
 
-  if (response === "veto") {
-    if (player.vetoUsed) return null;
-    player.vetoUsed = true;
-    player.vetoResponse = "veto";
-    if (!room.excludedMovieIds.includes(room.result.winnerId)) {
-      room.excludedMovieIds.push(room.result.winnerId);
-    }
-  } else {
-    player.vetoResponse = "accept";
-  }
-
-  const allResponded = room.players.every((p) => p.vetoResponse !== "pending");
-
-  if (allResponded) {
-    const vetoCount = room.players.filter((p) => p.vetoResponse === "veto").length;
-
-    if (vetoCount > 0 && room.result) {
-      const remaining = room.movieIds.filter(
-        (id) => !room.excludedMovieIds.includes(id)
-      );
-
-      if (remaining.length === 0) {
-        await newRound(code, room.hostId);
-        return getRoom(code);
+    if (response === "veto") {
+      if (player.vetoUsed) return null;
+      player.vetoUsed = true;
+      player.vetoResponse = "veto";
+      if (!room.excludedMovieIds.includes(room.result.winnerId)) {
+        room.excludedMovieIds.push(room.result.winnerId);
       }
+    } else {
+      player.vetoResponse = "accept";
+    }
 
-      const next = calculateMatch(room, room.excludedMovieIds);
-      if (next) {
-        room.result = next;
-        for (const p of room.players) {
-          p.vetoResponse = "pending";
+    const allResponded = room.players.every((p) => p.vetoResponse !== "pending");
+
+    if (allResponded) {
+      const vetoCount = room.players.filter((p) => p.vetoResponse === "veto")
+        .length;
+
+      if (vetoCount > 0 && room.result) {
+        const remaining = room.movieIds.filter(
+          (id) => !room.excludedMovieIds.includes(id)
+        );
+
+        if (remaining.length === 0) {
+          applyNewRound(room);
+          await saveRoom(room);
+          return room;
         }
-      } else {
-        // No alternate winner — start a fresh picking round instead of stalling.
-        await newRound(code, room.hostId);
-        return getRoom(code);
+
+        const next = calculateMatch(room, room.excludedMovieIds);
+        if (next) {
+          room.result = next;
+          for (const p of room.players) {
+            p.vetoResponse = "pending";
+          }
+        } else {
+          // No alternate winner — start a fresh picking round instead of stalling.
+          applyNewRound(room);
+          await saveRoom(room);
+          return room;
+        }
       }
     }
-  }
 
-  await saveRoom(room);
-  return room;
+    await saveRoom(room);
+    return room;
+  });
 }
 
 /**
@@ -608,19 +690,19 @@ export async function requestPass(
   playerId: string,
   rankings: string[] = []
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room) return null;
-  if (room.status !== "ranking") return room;
-  if (!room.players.some((p) => p.id === playerId)) return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "ranking") return room;
+    if (!room.players.some((p) => p.id === playerId)) return null;
 
-  rememberPassFavorites(room, playerId, rankings);
+    rememberPassFavorites(room, playerId, rankings);
 
-  if (room.passDeadline == null) {
-    room.passDeadline = Date.now() + PASS_COUNTDOWN_MS;
-  }
+    if (room.passDeadline == null) {
+      room.passDeadline = Date.now() + PASS_COUNTDOWN_MS;
+    }
 
-  await saveRoom(room);
-  return room;
+    await saveRoom(room);
+    return room;
+  });
 }
 
 /** Push the latest favorites during an active countdown. */
@@ -629,26 +711,21 @@ export async function syncPassFavorites(
   playerId: string,
   rankings: string[] = []
 ): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room) return null;
-  if (room.status !== "ranking") return room;
-  if (room.passDeadline == null) return room;
-  if (!room.players.some((p) => p.id === playerId)) return null;
+  return mutateRoom(code, async (room) => {
+    if (room.status !== "ranking") return room;
+    if (room.passDeadline == null) return room;
+    if (!room.players.some((p) => p.id === playerId)) return null;
 
-  rememberPassFavorites(room, playerId, rankings);
-  await saveRoom(room);
-  return room;
+    rememberPassFavorites(room, playerId, rankings);
+    await saveRoom(room);
+    return room;
+  });
 }
 
-/** Host starts a fresh picking round (keeps or clears picks via resetPicks). */
-export async function newRound(
-  code: string,
-  playerId: string,
+function applyNewRound(
+  room: Room,
   options: { clearPicks?: boolean } = {}
-): Promise<Room | null> {
-  const room = await getRoom(code);
-  if (!room || room.hostId !== playerId) return null;
-
+): void {
   room.status = "picking";
   room.result = null;
   room.excludedMovieIds = [];
@@ -667,9 +744,20 @@ export async function newRound(
     player.pickedIds = null;
     player.vetoResponse = "pending";
   }
+}
 
-  await saveRoom(room);
-  return room;
+/** Host starts a fresh picking round (keeps or clears picks via resetPicks). */
+export async function newRound(
+  code: string,
+  playerId: string,
+  options: { clearPicks?: boolean } = {}
+): Promise<Room | null> {
+  return mutateRoom(code, async (room) => {
+    if (room.hostId !== playerId) return null;
+    applyNewRound(room, options);
+    await saveRoom(room);
+    return room;
+  });
 }
 
 export async function pruneRooms(): Promise<void> {
